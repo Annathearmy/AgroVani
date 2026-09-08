@@ -20,10 +20,12 @@ export default function LiveKitVoiceAgent() {
   const [session, setSession] = useState(null)
   const [error, setError] = useState('')
   const [connecting, setConnecting] = useState(false)
+  const [connected, setConnected] = useState(false)
 
   async function start() {
     setError('')
     setConnecting(true)
+    setConnected(false)
     try {
       const response = await fetch('/api/livekit/token', { method: 'POST' })
       const data = await response.json()
@@ -31,6 +33,7 @@ export default function LiveKitVoiceAgent() {
       setSession(data)
     } catch (nextError) {
       setError(nextError.message || 'Unable to start the live voice agent.')
+      setSession(null)
     } finally {
       setConnecting(false)
     }
@@ -44,10 +47,29 @@ export default function LiveKitVoiceAgent() {
         connect
         audio
         video={false}
-        onDisconnected={() => setSession(null)}
+        onConnected={() => {
+          setConnected(true)
+          setError('')
+        }}
+        onError={(nextError) => {
+          setConnected(false)
+          setError(nextError?.message || 'LiveKit could not connect to the voice agent.')
+        }}
+        onDisconnected={(reason) => {
+          setConnected(false)
+          setSession(null)
+          if (reason) setError(`Live voice session ended: ${reason}`)
+        }}
         className="mt-4"
       >
-        <LiveKitSession onEnd={() => setSession(null)} />
+        <LiveKitSession onEnd={() => {
+          setConnected(false)
+          setSession(null)
+        }} />
+        <p className="mt-2 text-xs font-medium text-slate-500">
+          {connected ? 'Connected. You can speak now.' : 'Connecting to the Gemini agent...'}
+        </p>
+        {error && <p role="alert" className="mt-2 text-xs font-medium text-amber-700">{error}</p>}
       </LiveKitRoom>
     )
   }
