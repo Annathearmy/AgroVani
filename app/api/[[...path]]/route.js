@@ -1,6 +1,7 @@
 import { MongoClient } from 'mongodb'
 import { v4 as uuidv4 } from 'uuid'
 import { NextResponse } from 'next/server'
+import { AccessToken } from 'livekit-server-sdk'
 import { fetchWeather } from '@/lib/adapters/weather'
 import { fetchSprayWindow, fetchHydricStress, geocodeLocation } from '@/lib/adapters/cehub'
 import { computeStressDiagnostic, CROP_LIST, PRODUCT_CATALOG } from '@/lib/calculations/cropRecommendation'
@@ -174,16 +175,24 @@ const SEED_MACHINERY = [
 async function seedDb(db) {
   const farmsCol = db.collection('farms')
   const farmCount = await farmsCol.countDocuments()
+  let seededFarms = false
   if (farmCount === 0) {
     const now = new Date()
     const farms = SEED_FARMS.map((farm) => ({ id: uuidv4(), ...farm, createdAt: now }))
     await farmsCol.insertMany(farms)
-    await db.collection('machinery').insertMany(SEED_MACHINERY.map((item) => ({ id: uuidv4(), ...item })))
-    const metrics = Object.entries(DISTRICT_DATA).map(([district, values]) => ({ id: uuidv4(), district, ...values }))
-    await db.collection('district_metrics').insertMany(metrics)
-    return { seeded: true, farms: farms.length }
+    seededFarms = true
   }
-  return { seeded: false }
+
+  const machineryCol = db.collection('machinery')
+  if (await machineryCol.countDocuments() === 0) {
+    await machineryCol.insertMany(SEED_MACHINERY.map((item) => ({ id: uuidv4(), ...item })))
+  }
+  const metricsCol = db.collection('district_metrics')
+  if (await metricsCol.countDocuments() === 0) {
+    const metrics = Object.entries(DISTRICT_DATA).map(([district, values]) => ({ id: uuidv4(), district, ...values }))
+    await metricsCol.insertMany(metrics)
+  }
+  return { seeded: seededFarms, referenceDataReady: true }
 }
 
 async function createAssistantReply(db, body) {
@@ -294,7 +303,11 @@ async function createGeminiVisionDiagnosis(body) {
           { inline_data: { mime_type: mimeType, data: base64 } },
         ],
       }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 300 },
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 500,
+        responseMimeType: 'application/json',
+      },
     }),
   })
 
@@ -306,6 +319,10 @@ async function createGeminiVisionDiagnosis(body) {
 
   const parsed = parseGeminiResponse(data)
   const mapped = mapSymptomsToRecommendation({ cropType: body?.cropType || 'Rice', issue: parsed.issue, symptoms: parsed.symptoms || [parsed.issue] })
+  const matchedProduct = PRODUCT_CATALOG.find((product) => product.name.toLowerCase() === String(parsed.product || mapped.product).toLowerCase())
+  const dosageGuidance = matchedProduct
+    ? `No dose is inferred from an image alone. Confirm ${matchedProduct.name} is registered for this crop and target, then follow the current India label for formulation, dose, water volume, and safety interval.`
+    : 'No product dose is inferred from an image alone. Confirm the diagnosis with field scouting and follow the current registered India label.'
 
   return ok({
     ...parsed,
@@ -315,6 +332,7 @@ async function createGeminiVisionDiagnosis(body) {
     product: parsed.product || mapped.product,
     category: parsed.category || mapped.category,
     confidence: Number(parsed.confidence ?? 0.7),
+    dosageGuidance,
   })
 }
 
@@ -325,6 +343,17 @@ async function handleRoute(request, { params }) {
   const { searchParams } = new URL(request.url)
 
   try {
+    if (route === '/livekit/token' && method === 'POST') {
+      if (!process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET || !process.env.LIVEKIT_URL) {
+        return ok({ error: 'LiveKit is not configured. Add LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET.' }, 503)
+      }
+      const room = `agrovani-${uuidv4()}`
+      const identity = `farmer-${uuidv4()}`
+      const token = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, { identity })
+      token.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true })
+      return ok({ token: await token.toJwt(), url: process.env.LIVEKIT_URL, room })
+    }
+
     if (route === '/crop-diagnose' && method === 'POST') {
       return createGeminiVisionDiagnosis(await request.json())
     }
@@ -334,6 +363,11 @@ async function handleRoute(request, { params }) {
       const crop = searchParams.get('crop')
       const products = PRODUCT_CATALOG.filter((product) => !category || product.category === category)
         .filter((product) => !crop || !product.crops || product.crops.includes(crop))
+        .map((product) => ({
+          ...product,
+          dosage: null,
+          dosageGuidance: 'Verify the current registered India label after confirming the crop, target, formulation, water volume, and safety interval. The API never invents a chemical dose.',
+        }))
       return ok({ products, count: products.length })
     }
 
@@ -393,8 +427,7 @@ async function handleRoute(request, { params }) {
         const { _id, ...clean } = farm
         return ok(clean)
       }
-      const farmCount = await db.collection('farms').countDocuments()
-      if (farmCount === 0) await seedDb(db)
+      await seedDb(db)
       const farms = await db.collection('farms').find({}).limit(100).toArray()
       return ok(farms.map(({ _id, ...rest }) => rest))
     }
@@ -541,17 +574,29 @@ async function handleRoute(request, { params }) {
 
     if (route === '/residue' && method === 'GET') {
       const farmId = searchParams.get('farmId')
-      let area, district
+      let area, district, cropType
       if (farmId) {
         const farm = await db.collection('farms').findOne({ id: farmId })
         if (!farm) return ok({ error: 'Farm not found' }, 404)
         area = farm.areaInAcres
         district = farm.district
+        cropType = farm.cropType
       } else {
         area = Number(searchParams.get('area')) || 5
         district = searchParams.get('district') || 'Patiala'
+        cropType = searchParams.get('crop') || 'Rice'
       }
-      const result = computeResidue({ areaInAcres: area, district })
+      const metric = await db.collection('district_metrics').findOne({ district })
+      const machinery = await db.collection('machinery').find({ district }).limit(100).toArray()
+      const availableMachinery = machinery.filter((item) => item.available !== false).length
+      const districtData = metric
+        ? {
+            ...getDistrictData(district),
+            ...metric,
+            machineryReadiness: machinery.length ? Math.min(100, Math.round((availableMachinery / machinery.length) * 100)) : metric.machineryReadiness,
+          }
+        : null
+      const result = computeResidue({ areaInAcres: area, district, cropType, districtData })
       return ok(result)
     }
 
