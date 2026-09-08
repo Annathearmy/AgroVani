@@ -1,6 +1,11 @@
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: false,
+  env: {
+    NEXT_PUBLIC_BASE_URL:
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'),
+  },
   images: {
     unoptimized: true,
     remotePatterns: [
@@ -8,7 +13,7 @@ const nextConfig = {
     ],
   },
   // Renamed from experimental.serverComponentsExternalPackages in Next 15
-  serverExternalPackages: ['mongodb'],
+  serverExternalPackages: ['mongodb', 'livekit-server-sdk'],
   webpack(config, { dev }) {
     if (dev) {
       // Reduce CPU/memory from file watching
