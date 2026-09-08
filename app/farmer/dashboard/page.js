@@ -47,35 +47,6 @@ function StressGauge({ label, value, icon: Icon, unit = '/9' }) {
   )
 }
 
-function toPcm16(samples, inputSampleRate, outputSampleRate = 24000) {
-  if (inputSampleRate === outputSampleRate) {
-    const pcm = new Int16Array(samples.length)
-    for (let i = 0; i < samples.length; i += 1) pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 0x7fff
-    return pcm
-  }
-  const ratio = inputSampleRate / outputSampleRate
-  const pcm = new Int16Array(Math.round(samples.length / ratio))
-  for (let i = 0; i < pcm.length; i += 1) {
-    const sample = samples[Math.min(samples.length - 1, Math.floor(i * ratio))]
-    pcm[i] = Math.max(-1, Math.min(1, sample)) * 0x7fff
-  }
-  return pcm
-}
-
-function toBase64(buffer) {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i])
-  return window.btoa(binary)
-}
-
-function fromBase64(value) {
-  const binary = window.atob(value)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
-  return bytes.buffer
-}
-
 export default function App() {
   const [farms, setFarms] = useState([])
   const [farm, setFarm] = useState(null)
@@ -93,7 +64,9 @@ export default function App() {
   const [cameraError, setCameraError] = useState('')
   const [cameraDiagnosis, setCameraDiagnosis] = useState(null)
   const [cameraLoading, setCameraLoading] = useState(false)
-  const recognitionRef = useRef(null)
+  const recorderRef = useRef(null)
+  const voiceChunksRef = useRef([])
+  const voiceStreamRef = useRef(null)
   const cameraStreamRef = useRef(null)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -101,8 +74,12 @@ export default function App() {
   const copy = t.dashboard
 
   function stopVoice() {
-    recognitionRef.current?.stop()
-    recognitionRef.current = null
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.stop()
+      return
+    }
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+    voiceStreamRef.current = null
     setListening(false)
     setVoiceMode('idle')
   }
@@ -113,63 +90,78 @@ export default function App() {
       return
     }
 
-    if (!window.isSecureContext || !('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-      setVoiceText('Voice input needs a secure browser context and Web Speech support. Try Chrome or Edge.')
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setVoiceText('Voice input needs a secure browser context and microphone support.')
       return
     }
 
-    setVoiceText('Listening... Ask a crop or farm question.')
+    setVoiceText('Listening... Tap again when you finish your question.')
     setVoiceReply('')
     setVoiceMode('listening')
     setListening(true)
-
-    const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition
-    const recognition = new SpeechRecognitionCtor()
-    recognition.lang = locale === 'hi' ? 'hi-IN' : locale === 'pa' ? 'pa-IN' : 'en-IN'
-    recognition.interimResults = false
-    recognition.maxAlternatives = 1
-
-    recognition.onresult = async (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript || ''
-      if (!transcript) return
-      setVoiceText(transcript)
-      setVoiceMode('thinking')
-
-      try {
-        const response = await fetch('/api/assistant', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: transcript,
-            farmId: farm?.id || null,
-            locale,
-            context: stress || residue || { farm: farm?.cropType || 'Rice' },
-          }),
-        })
-        const data = await response.json()
-        if (!response.ok || !data.reply) throw new Error(data.error || 'Voice assistant error')
-        setVoiceReply(data.reply)
-        setVoiceMode('listening')
-      } catch (error) {
-        setVoiceReply(error.message || 'The assistant could not answer right now. Try again.')
-        setVoiceMode('idle')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) => MediaRecorder.isTypeSupported(type)) || ''
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      voiceStreamRef.current = stream
+      voiceChunksRef.current = []
+      recorderRef.current = recorder
+      recorder.ondataavailable = (event) => { if (event.data.size > 0) voiceChunksRef.current.push(event.data) }
+      recorder.onerror = () => {
+        setVoiceText('Voice recording failed. Please try again.')
+        stopVoice()
       }
-    }
-
-    recognition.onerror = (event) => {
-      const msg = event.error === 'not-allowed' ? 'Microphone permission was denied.' : event.error === 'no-speech' ? 'No speech was detected. Try again.' : 'Voice recognition failed. Please try again.'
-      setVoiceText(msg)
-      setVoiceMode('idle')
+      recorder.onstop = async () => {
+        const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        voiceChunksRef.current = []
+        recorderRef.current = null
+        voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+        voiceStreamRef.current = null
+        if (!blob.size) {
+          setVoiceText('No speech was recorded. Please try again.')
+          setListening(false)
+          setVoiceMode('idle')
+          return
+        }
+        setListening(false)
+        setVoiceMode('thinking')
+        setVoiceText('Gemini is understanding your question...')
+        const reader = new FileReader()
+        reader.onload = async () => {
+          try {
+            const response = await fetch('/api/assistant/audio', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                audio: reader.result,
+                mimeType: blob.type || 'audio/webm',
+                farmId: farm?.id || null,
+                locale,
+                context: stress || residue || { farm: farm?.cropType || 'Rice' },
+              }),
+            })
+            const data = await response.json()
+            if (!response.ok || !data.reply) throw new Error(data.error || 'Gemini voice assistant error')
+            setVoiceReply(data.reply)
+            setVoiceText('Question answered by Gemini.')
+            setVoiceMode('idle')
+            if ('speechSynthesis' in window) {
+              window.speechSynthesis.cancel()
+              window.speechSynthesis.speak(new SpeechSynthesisUtterance(data.reply))
+            }
+          } catch (error) {
+            setVoiceReply(error.message || 'Gemini could not answer right now. Try again.')
+            setVoiceMode('idle')
+          }
+        }
+        reader.readAsDataURL(blob)
+      }
+      recorder.start()
+    } catch (error) {
+      setVoiceText(error.name === 'NotAllowedError' ? 'Microphone permission was denied.' : error.message || 'Unable to start voice recording.')
       setListening(false)
-    }
-
-    recognition.onend = () => {
-      setListening(false)
       setVoiceMode('idle')
     }
-
-    recognitionRef.current = recognition
-    recognition.start()
   }
 
   function stopCamera() {
