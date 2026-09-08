@@ -602,24 +602,27 @@ async function handleRoute(request, { params }) {
       }
       const metric = await db.collection('district_metrics').findOne({ district })
       const machinery = await db.collection('machinery').find({ district }).limit(100).toArray()
-      const availableMachinery = machinery.filter((item) => item.available !== false).length
       const districtData = metric
         ? {
             ...getDistrictData(district),
             ...metric,
-            machineryReadiness: machinery.length ? Math.min(100, Math.round((availableMachinery / machinery.length) * 100)) : metric.machineryReadiness,
           }
         : null
       const result = computeResidue({ areaInAcres: area, district, cropType, districtData })
       const [listings, orders] = await Promise.all([
         db.collection('marketplace_listings').find({ status: 'active', category: 'Residue' }).limit(1000).toArray(),
-        db.collection('marketplace_orders').find({ status: { $in: ['new', 'packed', 'out_for_delivery'] } }).limit(1000).toArray(),
+        db.collection('marketplace_orders').find({ farmId: farmId || null, status: { $in: ['new', 'packed', 'out_for_delivery'] } }).limit(1000).toArray(),
       ])
+      const bookings = await db.collection('bookings').find({ farmId: farmId || null }).limit(100).toArray()
       const fieldMetrics = computeFieldReadiness({
+        areaInAcres: area,
+        cropType,
         residueTons: result.residueTons,
         machinery,
+        bookings,
         activeListings: listings.length,
         activeOrders: orders.length,
+        activeOrderQuantity: orders.reduce((total, order) => total + Math.max(0, Number(order.quantity) || 0), 0),
       })
       return ok({ ...result, ...fieldMetrics })
     }
