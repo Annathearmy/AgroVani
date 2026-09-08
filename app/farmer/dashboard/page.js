@@ -47,6 +47,35 @@ function StressGauge({ label, value, icon: Icon, unit = '/9' }) {
   )
 }
 
+function toPcm16(samples, inputSampleRate, outputSampleRate = 24000) {
+  if (inputSampleRate === outputSampleRate) {
+    const pcm = new Int16Array(samples.length)
+    for (let i = 0; i < samples.length; i += 1) pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 0x7fff
+    return pcm
+  }
+  const ratio = inputSampleRate / outputSampleRate
+  const pcm = new Int16Array(Math.round(samples.length / ratio))
+  for (let i = 0; i < pcm.length; i += 1) {
+    const sample = samples[Math.min(samples.length - 1, Math.floor(i * ratio))]
+    pcm[i] = Math.max(-1, Math.min(1, sample)) * 0x7fff
+  }
+  return pcm
+}
+
+function toBase64(buffer) {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i])
+  return window.btoa(binary)
+}
+
+function fromBase64(value) {
+  const binary = window.atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return bytes.buffer
+}
+
 export default function App() {
   const [farms, setFarms] = useState([])
   const [farm, setFarm] = useState(null)
@@ -62,6 +91,8 @@ export default function App() {
   const [cameraPreview, setCameraPreview] = useState('')
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraError, setCameraError] = useState('')
+  const [cameraDiagnosis, setCameraDiagnosis] = useState(null)
+  const [cameraLoading, setCameraLoading] = useState(false)
   const recognitionRef = useRef(null)
   const cameraStreamRef = useRef(null)
   const videoRef = useRef(null)
@@ -76,51 +107,67 @@ export default function App() {
     setVoiceMode('idle')
   }
 
-  function startVoice() {
+  async function startVoice() {
     if (listening) {
       stopVoice()
       return
     }
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!Recognition) {
-      setVoiceText('Voice input is not supported in this browser.')
+
+    if (!window.isSecureContext || !('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      setVoiceText('Voice input needs a secure browser context and Web Speech support. Try Chrome or Edge.')
       return
     }
-    const recognition = new Recognition()
+
+    setVoiceText('Listening... Ask a crop or farm question.')
+    setVoiceReply('')
+    setVoiceMode('listening')
+    setListening(true)
+
+    const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition
+    const recognition = new SpeechRecognitionCtor()
     recognition.lang = locale === 'hi' ? 'hi-IN' : locale === 'pa' ? 'pa-IN' : 'en-IN'
     recognition.interimResults = false
-    recognition.continuous = false
-    recognition.onstart = () => setListening(true)
-    recognition.onend = () => { setListening(false); recognitionRef.current = null }
-    recognition.onerror = () => { setListening(false); setVoiceMode('idle'); setVoiceText('Could not hear that. Please try again.') }
+    recognition.maxAlternatives = 1
+
     recognition.onresult = async (event) => {
-      const transcript = event.results[0][0].transcript
+      const transcript = event.results?.[0]?.[0]?.transcript || ''
+      if (!transcript) return
       setVoiceText(transcript)
       setVoiceMode('thinking')
+
       try {
         const response = await fetch('/api/assistant', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            farmId: farm?.id,
-            locale,
             message: transcript,
-            context: { weather: stress?.weather, diagnostic: stress?.diagnostic, residue },
+            farmId: farm?.id || null,
+            locale,
+            context: stress || residue || { farm: farm?.cropType || 'Rice' },
           }),
         })
         const data = await response.json()
-        if (!response.ok || !data.reply) throw new Error(data.error || 'Assistant unavailable')
+        if (!response.ok || !data.reply) throw new Error(data.error || 'Voice assistant error')
         setVoiceReply(data.reply)
-        if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel()
-          window.speechSynthesis.speak(new SpeechSynthesisUtterance(data.reply))
-        }
+        setVoiceMode('listening')
       } catch (error) {
-        setVoiceReply(error.message || 'Assistant unavailable.')
-      } finally {
+        setVoiceReply(error.message || 'The assistant could not answer right now. Try again.')
         setVoiceMode('idle')
       }
     }
+
+    recognition.onerror = (event) => {
+      const msg = event.error === 'not-allowed' ? 'Microphone permission was denied.' : event.error === 'no-speech' ? 'No speech was detected. Try again.' : 'Voice recognition failed. Please try again.'
+      setVoiceText(msg)
+      setVoiceMode('idle')
+      setListening(false)
+    }
+
+    recognition.onend = () => {
+      setListening(false)
+      setVoiceMode('idle')
+    }
+
     recognitionRef.current = recognition
     recognition.start()
   }
@@ -147,6 +194,43 @@ export default function App() {
     }
   }
 
+  async function diagnoseCropImage(file) {
+    if (!file) return
+    setCameraLoading(true)
+    setCameraError('')
+    setCameraDiagnosis(null)
+
+    try {
+      const reader = new FileReader()
+      reader.onload = async () => {
+        try {
+          const response = await fetch('/api/crop-diagnose', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image: reader.result,
+              mimeType: file.type || 'image/jpeg',
+              cropType: farm?.cropType || 'Rice',
+              farmName: farm?.name || 'Farmer',
+              location: farm ? `${farm.village || ''}, ${farm.district || ''}`.trim() : '',
+            }),
+          })
+          const data = await response.json()
+          if (!response.ok || !data.issue) throw new Error(data.error || 'Crop diagnosis failed')
+          setCameraDiagnosis(data)
+        } catch (error) {
+          setCameraError(error.message || 'Diagnosis failed. Please try another image.')
+        } finally {
+          setCameraLoading(false)
+        }
+      }
+      reader.readAsDataURL(file)
+    } catch (error) {
+      setCameraError(error.message || 'Unable to read image file.')
+      setCameraLoading(false)
+    }
+  }
+
   function captureCamera() {
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -154,8 +238,12 @@ export default function App() {
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
-    canvas.toBlob((blob) => {
-      if (blob) setCameraFile(new File([blob], `crop-${Date.now()}.jpg`, { type: 'image/jpeg' }))
+    canvas.toBlob(async (blob) => {
+      if (blob) {
+        const file = new File([blob], `crop-${Date.now()}.jpg`, { type: 'image/jpeg' })
+        setCameraFile(file)
+        await diagnoseCropImage(file)
+      }
       stopCamera()
     }, 'image/jpeg', 0.9)
   }
@@ -173,6 +261,12 @@ export default function App() {
   }, [cameraFile])
 
   useEffect(() => {
+    if (cameraFile && !cameraDiagnosis && !cameraLoading) {
+      diagnoseCropImage(cameraFile)
+    }
+  }, [cameraFile, cameraDiagnosis, cameraLoading])
+
+  useEffect(() => {
     const p = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
     if (p === 'crop') setTab('crop')
     if (p === 'residue') setTab('residue')
@@ -181,12 +275,14 @@ export default function App() {
       try {
         let res = await fetch('/api/farms')
         let list = await res.json()
+        if (!res.ok || !Array.isArray(list)) throw new Error(list.error || 'Unable to load farms')
         const farmsArr = Array.isArray(list) ? list : []
         setFarms(farmsArr)
         const savedId = typeof window !== 'undefined' ? localStorage.getItem('fv_farmId') : null
         const initial = farmsArr.find((f) => f.id === savedId) || farmsArr[0] || null
         setFarm(initial)
       } catch (e) {
+        console.error('Farm loading failed:', e)
         setFarms([])
       }
     }
@@ -198,11 +294,22 @@ export default function App() {
     setLoading(true)
     setStress(null)
     setResidue(null)
-    fetch(`/api/residue?farmId=${f.id}`).then((r) => r.json()).then(setResidue).catch(() => {})
+    fetch(`/api/residue?farmId=${f.id}`)
+      .then(async (r) => {
+        const data = await r.json()
+        if (!r.ok || data.error) throw new Error(data.error || 'Residue data unavailable')
+        return data
+      })
+      .then(setResidue)
+      .catch((error) => console.error('Residue loading failed:', error))
     fetch(`/api/stress?farmId=${f.id}`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        const data = await r.json()
+        if (!r.ok || data.error) throw new Error(data.error || 'Stress data unavailable')
+        return data
+      })
       .then(setStress)
-      .catch(() => {})
+      .catch((error) => console.error('Stress loading failed:', error))
       .finally(() => setLoading(false))
   }, [])
 
@@ -331,25 +438,22 @@ export default function App() {
                       <h3 className="mt-4 text-2xl font-bold text-slate-900">{diag.product.product}</h3>
                       <p className="text-sm font-semibold text-emerald-700">{diag.product.brand}</p>
                       <p className="mt-3 text-sm leading-6 text-slate-600">{diag.product.rationale}</p>
+                      {diag.product.requiresConfirmation && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-900">Confirm the pest, disease, weed, crop registration, and current label before applying any product.</p>}
                       {diag.product.options?.length > 0 && (
                         <div className="mt-5 space-y-2">
                           <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-slate-500">Potential Syngenta options</p>
                           {diag.product.options.map((option) => (
                             <div key={option.name} className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
                               <p className="text-sm font-semibold text-emerald-900">{option.name} <span className="font-normal text-emerald-700">· {option.type}</span></p>
+                              {option.composition && <p className="mt-1 text-xs font-medium text-emerald-700">{option.composition}</p>}
                               <p className="mt-1 text-xs leading-5 text-emerald-800">{option.use}</p>
                             </div>
                           ))}
                         </div>
                       )}
                       <div className="mt-5 rounded-2xl bg-slate-900 p-4 text-white">
-                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-300"><FlaskConical className="h-4 w-4" /> Smart pump-count dosing</div>
+                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-300"><FlaskConical className="h-4 w-4" /> Label-safe application</div>
                         <p className="mt-3 text-sm text-slate-200">{diag.dosing.message}</p>
-                        <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-300">
-                          <span>{diag.dosing.totalPumps} pumps</span>
-                          <span>{diag.dosing.totalCaps} caps</span>
-                          <span>{diag.dosing.totalLitres} L product</span>
-                        </div>
                       </div>
                     </>
                   ) : <p className="mt-4 text-sm text-slate-500">Computing recommendation…</p>}
@@ -377,7 +481,7 @@ export default function App() {
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="glass-card">
                   <div className="flex items-center gap-2 text-slate-900"><Mic className="h-5 w-5 text-emerald-600" /><h3 className="text-xl font-semibold">Voice Advisory</h3></div>
-                  <p className="mt-2 text-sm text-slate-600">Ask in Punjabi, Hindi, Marathi, Tamil or Telugu. Speech-to-Text advisory.</p>
+                  <p className="mt-2 text-sm text-slate-600">Talk naturally in Punjabi, Hindi, Marathi, Tamil or Telugu. The AgroVani agent listens and replies.</p>
                   <button onClick={startVoice} aria-label={listening ? 'Stop voice advisory' : 'Start voice advisory'} aria-pressed={listening} className={`mt-5 flex h-14 w-14 items-center justify-center rounded-full shadow-sm ${listening ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}><Mic className="h-6 w-6" /></button>
                   <p className="mt-3 text-xs text-slate-500">{voiceText || (voiceMode === 'thinking' ? 'Thinking...' : listening ? 'Listening... Tap again to stop.' : 'Tap the microphone and ask your question.')}</p>
                   {voiceReply && <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{voiceReply}</p>}
@@ -402,9 +506,23 @@ export default function App() {
                   <canvas ref={canvasRef} className="hidden" />
                   <div className="mt-4 flex flex-wrap gap-3">
                     <button type="button" onClick={openCamera} className="pill-dark"><Camera className="mr-2 h-4 w-4" /> Open camera</button>
-                    <label className="glass-btn cursor-pointer"><span>Upload photo</span><input type="file" accept="image/*" className="sr-only" onChange={(event) => setCameraFile(event.target.files?.[0] || null)} /></label>
+                    <label className="glass-btn cursor-pointer"><span>Upload photo</span><input type="file" accept="image/*" className="sr-only" onChange={(event) => {
+                      const file = event.target.files?.[0] || null
+                      setCameraFile(file)
+                      if (file) diagnoseCropImage(file)
+                    }} /></label>
                   </div>
+                  {cameraLoading && <p className="mt-3 text-xs font-medium text-emerald-700">Diagnosing crop image with Gemini…</p>}
                   {cameraError && <p role="alert" className="mt-3 text-xs font-medium text-red-600">{cameraError}</p>}
+                  {cameraDiagnosis && (
+                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Diagnosis</p>
+                      <p className="mt-2 text-lg font-semibold">{cameraDiagnosis.issue}</p>
+                      <p className="mt-1">Severity: <span className="font-semibold">{cameraDiagnosis.severity}</span> · Confidence: <span className="font-semibold">{Number(cameraDiagnosis.confidence || 0).toFixed(2)}</span></p>
+                      <p className="mt-2 text-sm text-emerald-800">{cameraDiagnosis.recommendation || cameraDiagnosis.mappedRecommendation?.recommendation}</p>
+                      {cameraDiagnosis.product && <p className="mt-2"><span className="font-semibold">Recommended product:</span> {cameraDiagnosis.product}</p>}
+                    </div>
+                  )}
                   <p className="mt-3 text-xs text-slate-500">{cameraFile ? 'Leaf image ready for diagnosis.' : 'Use the camera or upload a leaf photo to prepare a crop diagnosis.'}</p>
                 </div>
               </div>
