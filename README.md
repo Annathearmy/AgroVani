@@ -105,6 +105,21 @@
 | **Testing & Quality** | Pytest-backed test runs & test ID instrumentation (`lib/constants/testIds`) |
 | **Deployment** | [Vercel](https://vercel.com/) |
 
+### Gemini Live voice agent
+
+The Live Voice Advisory card uses the Next.js app for room tokens and the Python worker for the Gemini Live session. Keep both processes running during local development:
+
+```bash
+# Terminal 1
+npm run dev
+
+# Terminal 2
+python -m pip install -r agent/requirements.txt
+python agent/agent.py dev
+```
+
+Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `GEMINI_API_KEY` in `.env` or `.env.local`. The worker maps `GEMINI_API_KEY` to `GOOGLE_API_KEY` automatically.
+
 ---
 
 ## 📂 Project Structure
