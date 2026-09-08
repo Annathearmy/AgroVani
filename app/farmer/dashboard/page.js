@@ -8,6 +8,7 @@ import BookMachineryCard from '@/components/farmer/BookMachineryCard'
 import LiveKitVoiceAgent from '@/components/farmer/LiveKitVoiceAgent'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
+import { getRecommendationCopy } from '@/lib/i18n/recommendation'
 import {
   Wheat, FlaskConical, ArrowLeft, TrendingUp, Sun, Moon, Snowflake,
   Droplets, Sparkles, Clock, Mic, Camera, IndianRupee, AlertTriangle, Loader2,
@@ -74,6 +75,13 @@ export default function App() {
   const canvasRef = useRef(null)
   const { locale, t } = useLanguage()
   const copy = t.dashboard
+  const recommendationCopy = getRecommendationCopy(locale)
+
+  function localizedProductName(product) {
+    if (product === 'No stress product needed') return recommendationCopy.noStress
+    if (product === 'Scout before spraying') return recommendationCopy.scout
+    return product
+  }
 
   function formatSprayTime(value) {
     if (!value) return '—'
@@ -452,21 +460,20 @@ export default function App() {
                   <div className="flex items-center gap-2 text-emerald-600"><Sparkles className="h-5 w-5" /><span className="text-[10px] font-bold uppercase tracking-[0.28em]">{copy.recommendationTitle}</span></div>
                   {diag ? (
                     <>
-                      <h3 className="mt-4 text-2xl font-bold text-slate-900">{diag.product.product}</h3>
-                      <p className="text-sm font-semibold text-emerald-700">{diag.product.brand}</p>
-                      <p className="mt-3 text-sm leading-6 text-slate-600">{diag.product.rationale}</p>
+                      <h3 className="mt-4 text-2xl font-bold text-slate-900">{localizedProductName(diag.product.product)}</h3>
+                      <p className="text-sm font-semibold text-emerald-700">{recommendationCopy.brands[diag.product.category] || diag.product.brand}</p>
+                      <p className="mt-3 text-sm leading-6 text-slate-600">{recommendationCopy.rationale[diag.product.category] || diag.product.rationale}</p>
                       {diag.product.requiresConfirmation && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-900">{copy.confirmLabel}</p>}
                       {diag.product.options?.length > 0 && (
                         <div className="mt-5 space-y-2">
                           <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-slate-500">{copy.options}</p>
                           {diag.product.options.map((option) => (
                             <div key={option.name} className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
-                              <p className="text-sm font-semibold text-emerald-900">{option.name} <span className="font-normal text-emerald-700">· {option.type}</span></p>
-                              {option.composition && <p className="mt-1 text-xs font-medium text-emerald-700">{option.composition}</p>}
-                              <p className="mt-1 text-xs leading-5 text-emerald-800">{option.use}</p>
-                              {option.dosage && <p className="mt-1 text-[11px] font-semibold leading-4 text-amber-800">{copy.dosage}: {option.dosage.rateMlPerLitre} ml/L · {option.dosage.waterLitres} L water · {option.dosage.productMl} ml product · {option.dosage.applicationsPerDay} {copy.timesPerDay} · {option.dosage.applicationsPerSeason} {copy.applications}</p>}
-                              {option.dosage && <p className="mt-1 text-[11px] leading-4 text-emerald-800">{copy.region}: {option.dosage.region} · {copy.interval}: {option.dosage.intervalDays} days · {option.dosage.timing}</p>}
-                              {option.dosageGuidance && <p className="mt-1 text-[11px] leading-4 text-amber-800">{option.dosageGuidance}</p>}
+                              <p className="text-sm font-semibold text-emerald-900">{option.name} <span className="font-normal text-emerald-700">· {recommendationCopy.products[option.name]?.type || option.type}</span></p>
+                              {option.composition && <p className="mt-1 text-xs font-medium text-emerald-700">{recommendationCopy.products[option.name]?.composition || option.composition}</p>}
+                              <p className="mt-1 text-xs leading-5 text-emerald-800">{recommendationCopy.products[option.name]?.use || option.use}</p>
+                              {option.dosage && <p className="mt-1 text-[11px] font-semibold leading-4 text-amber-800">{copy.dosage}: {option.dosage.rateMlPerLitre} {recommendationCopy.mlPerLitre} · {option.dosage.waterLitres} L {recommendationCopy.water} · {option.dosage.productMl} ml {recommendationCopy.product} · {option.dosage.applicationsPerDay} {copy.timesPerDay} · {option.dosage.applicationsPerSeason} {copy.applications}</p>}
+                              {option.dosage && <p className="mt-1 text-[11px] leading-4 text-emerald-800">{copy.region}: {recommendationCopy.regions[option.dosage.region] || option.dosage.region} · {copy.interval}: {option.dosage.intervalDays} {recommendationCopy.days} · {recommendationCopy.timing[option.name] || option.dosage.timing}</p>}
                             </div>
                           ))}
                         </div>
@@ -474,7 +481,7 @@ export default function App() {
                       {diag.product.options?.length > 0 ? (
                         <div className="mt-5 rounded-2xl bg-slate-900 p-4 text-white">
                           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-300"><FlaskConical className="h-4 w-4" /> {copy.fieldPlan}</div>
-                          <p className="mt-3 text-sm text-slate-200">{copy.fieldPlanText(diag.dosing.acres, diag.dosing.region)}</p>
+                          <p className="mt-3 text-sm text-slate-200">{copy.fieldPlanText(diag.dosing.acres, recommendationCopy.regions[diag.dosing.region] || diag.dosing.region)}</p>
                         </div>
                       ) : (
                         <div className="mt-5 rounded-2xl bg-slate-100 p-4 text-sm text-slate-700">{copy.noProduct}</div>
