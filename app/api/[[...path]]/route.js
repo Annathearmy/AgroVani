@@ -367,7 +367,7 @@ async function handleRoute(request, { params }) {
           ...product,
           dosage: product.dosage || null,
           dosageGuidance: product.dosage
-            ? `${product.dosage}. Verify the current registered India label after confirming the crop, target, formulation, water volume, and safety interval.`
+            ? `${product.dosage.rateMlPerLitre} ml/L. Verify the current registered India label after confirming the crop, target, formulation, water volume, and safety interval.`
             : 'Verify the current registered India label after confirming the crop, target, formulation, water volume, and safety interval. The API never invents a chemical dose.',
         }))
       return ok({ products, count: products.length })
@@ -545,6 +545,7 @@ async function handleRoute(request, { params }) {
       const weather = await fetchWeather(lat, lon)
       const diagnostic = computeStressDiagnostic({
         weather, crop, areaInAcres: area, soilPh, nitrogenKgPerHa: nitrogen,
+        state: farmId ? (await db.collection('farms').findOne({ id: farmId }))?.state : searchParams.get('state') || 'India',
       })
       diagnostic.economics = computeFarmEconomics({ crop, areaInAcres: area, diagnostic })
       const spray = await fetchSprayWindow(lat, lon, 'Foliar')
