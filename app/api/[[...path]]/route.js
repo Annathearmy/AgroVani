@@ -570,7 +570,13 @@ async function handleRoute(request, { params }) {
         diagnostic,
         sprayWindow: spray.windows,
         hydricStress: hydric.data,
-        syngentaApi: { sprayWindow: spray.ok, hydricStress: hydric.ok },
+        syngentaApi: {
+          sprayWindow: spray.ok,
+          sprayWindowCount: spray.windows.length,
+          sprayWindowStatus: spray.status,
+          sprayWindowError: spray.error || null,
+          hydricStress: hydric.ok,
+        },
         location: { latitude: lat, longitude: lon },
       })
     }

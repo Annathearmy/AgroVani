@@ -481,7 +481,9 @@ export default function App() {
                     </ul>
                   ) : (
                     <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
-                      No high-confidence window flagged right now. Best practice: spray in the <span className="font-semibold text-slate-800">early morning (6–9 AM)</span> or late evening with low wind.
+                      {syngentaApi?.sprayWindow
+                        ? 'The live CE Hub API returned no eligible spray window for this location and forecast period.'
+                        : `The live CE Hub spray-window API is unavailable${syngentaApi?.sprayWindowError ? `: ${syngentaApi.sprayWindowError}` : '.'}`}
                     </div>
                   )}
                   <BookMachineryCard farm={farm} defaultType="Boom Sprayer" triggerLabel="Book Sprayer Machine" triggerClass="pill-dark mt-4 w-full" />
