@@ -182,7 +182,6 @@ export default function App() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
       cameraStreamRef.current = stream
       setCameraOpen(true)
-      if (videoRef.current) videoRef.current.srcObject = stream
     } catch (error) {
       setCameraError(error.name === 'NotAllowedError' ? 'Camera permission was denied. Enable it in browser settings or use Upload photo.' : 'Unable to start the camera. Use Upload photo instead.')
     }
@@ -253,6 +252,12 @@ export default function App() {
     setCameraPreview(previewUrl)
     return () => URL.revokeObjectURL(previewUrl)
   }, [cameraFile])
+
+  useEffect(() => {
+    if (cameraOpen && videoRef.current && cameraStreamRef.current) {
+      videoRef.current.srcObject = cameraStreamRef.current
+    }
+  }, [cameraOpen])
 
   useEffect(() => {
     const p = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
@@ -410,15 +415,15 @@ export default function App() {
             <div className="space-y-6">
               <div className="flex flex-wrap items-center gap-4 rounded-[28px] bg-gradient-to-r from-[#006a42] to-[#29a56b] px-6 py-5 text-white shadow-[0_20px_45px_rgba(0,106,66,0.25)]">
                 <TrendingUp className="h-6 w-6" />
-                <p className="text-lg font-semibold">+12% Verified Yield Gain</p>
+                <p className="text-lg font-semibold">{copy.roi}: {diag?.economics?.roiPercent != null ? `${diag.economics.roiPercent}%` : '—'}</p>
                 <span className="hidden h-6 w-px bg-white/40 sm:block" />
-                <p className="text-lg font-semibold">+₹4,200 Profit / Acre</p>
+                <p className="text-lg font-semibold">{copy.grossReturn}: ₹{diag?.economics?.netReturn?.toLocaleString('en-IN') || '—'}</p>
                 <span className="ml-auto rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">Causal ROI attribution</span>
               </div>
 
               <div className="glass-card">
                 <div className="mb-5 flex items-center justify-between gap-4">
-                  <h3 className="text-xl font-semibold text-slate-900">Live abiotic stress — {farm?.cropType}</h3>
+                  <h3 className="text-xl font-semibold text-slate-900">{copy.liveStress} — {farm?.cropType}</h3>
                   {diag && <span className="text-sm text-slate-500">TMAX {diag.tmax?.toFixed(1)}°C • TMIN {diag.tmin?.toFixed(1)}°C</span>}
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -426,7 +431,7 @@ export default function App() {
                   <StressGauge label="Night Heat" value={diag?.scores?.night} icon={Moon} />
                   <StressGauge label="Frost" value={diag?.scores?.frost} icon={Snowflake} />
                   <div className="rounded-[24px] border border-white/70 bg-white/75 p-5 shadow-[0_12px_28px_rgba(0,0,0,0.04)] backdrop-blur-md">
-                    <div className="flex items-center gap-2 text-slate-500"><Droplets className="h-4 w-4" /><span className="text-[10px] font-bold uppercase tracking-[0.2em]">Drought Index</span></div>
+                    <div className="flex items-center gap-2 text-slate-500"><Droplets className="h-4 w-4" /><span className="text-[10px] font-bold uppercase tracking-[0.2em]">{copy.droughtIndex}</span></div>
                     <p className="mt-3 text-4xl font-bold text-slate-900">{diag?.droughtIndex?.value?.toFixed(2) ?? '—'}</p>
                     <p className="mt-3 text-sm font-medium" style={{ color: diag?.droughtIndex?.risk === 'High Risk' ? '#ef4444' : diag?.droughtIndex?.risk === 'Medium Risk' ? '#f59e0b' : '#10b981' }}>{diag?.droughtIndex?.risk || '—'}</p>
                   </div>
@@ -450,6 +455,7 @@ export default function App() {
                               <p className="text-sm font-semibold text-emerald-900">{option.name} <span className="font-normal text-emerald-700">· {option.type}</span></p>
                               {option.composition && <p className="mt-1 text-xs font-medium text-emerald-700">{option.composition}</p>}
                               <p className="mt-1 text-xs leading-5 text-emerald-800">{option.use}</p>
+                              {option.dosage && <p className="mt-1 text-[11px] font-semibold leading-4 text-amber-800">Dosage: {option.dosage}</p>}
                               {option.dosageGuidance && <p className="mt-1 text-[11px] leading-4 text-amber-800">{option.dosageGuidance}</p>}
                             </div>
                           ))}

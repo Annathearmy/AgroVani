@@ -4,8 +4,8 @@ import { NextResponse } from 'next/server'
 import { AccessToken } from 'livekit-server-sdk'
 import { fetchWeather } from '@/lib/adapters/weather'
 import { fetchSprayWindow, fetchHydricStress, geocodeLocation } from '@/lib/adapters/cehub'
-import { computeStressDiagnostic, CROP_LIST, PRODUCT_CATALOG } from '@/lib/calculations/cropRecommendation'
-import { computeResidue, DISTRICT_DATA, getDistrictData } from '@/lib/calculations/residueRecommendation'
+import { computeStressDiagnostic, computeFarmEconomics, CROP_LIST, PRODUCT_CATALOG } from '@/lib/calculations/cropRecommendation'
+import { computeResidue, computeFieldReadiness, DISTRICT_DATA, getDistrictData } from '@/lib/calculations/residueRecommendation'
 import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/ai/gemini'
 import { createSupabaseDb, getSupabaseServerClient } from '@/lib/supabase/server'
 
@@ -365,8 +365,10 @@ async function handleRoute(request, { params }) {
         .filter((product) => !crop || !product.crops || product.crops.includes(crop))
         .map((product) => ({
           ...product,
-          dosage: null,
-          dosageGuidance: 'Verify the current registered India label after confirming the crop, target, formulation, water volume, and safety interval. The API never invents a chemical dose.',
+          dosage: product.dosage || null,
+          dosageGuidance: product.dosage
+            ? `${product.dosage}. Verify the current registered India label after confirming the crop, target, formulation, water volume, and safety interval.`
+            : 'Verify the current registered India label after confirming the crop, target, formulation, water volume, and safety interval. The API never invents a chemical dose.',
         }))
       return ok({ products, count: products.length })
     }
@@ -544,6 +546,7 @@ async function handleRoute(request, { params }) {
       const diagnostic = computeStressDiagnostic({
         weather, crop, areaInAcres: area, soilPh, nitrogenKgPerHa: nitrogen,
       })
+      diagnostic.economics = computeFarmEconomics({ crop, areaInAcres: area, diagnostic })
       const spray = await fetchSprayWindow(lat, lon, 'Foliar')
       const hydric = await fetchHydricStress(lat, lon, crop)
 
@@ -597,7 +600,17 @@ async function handleRoute(request, { params }) {
           }
         : null
       const result = computeResidue({ areaInAcres: area, district, cropType, districtData })
-      return ok(result)
+      const [listings, orders] = await Promise.all([
+        db.collection('marketplace_listings').find({ status: 'active', category: 'Residue' }).limit(1000).toArray(),
+        db.collection('marketplace_orders').find({ status: { $in: ['new', 'packed', 'out_for_delivery'] } }).limit(1000).toArray(),
+      ])
+      const fieldMetrics = computeFieldReadiness({
+        residueTons: result.residueTons,
+        machinery,
+        activeListings: listings.length,
+        activeOrders: orders.length,
+      })
+      return ok({ ...result, ...fieldMetrics })
     }
 
     if (route === '/machinery' && method === 'GET') {
