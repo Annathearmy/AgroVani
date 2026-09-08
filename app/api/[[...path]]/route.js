@@ -523,7 +523,7 @@ async function handleRoute(request, { params }) {
 
     if (route === '/stress' && method === 'GET') {
       const farmId = searchParams.get('farmId')
-      let lat, lon, crop, area, soilPh, nitrogen
+      let lat, lon, crop, area, soilPh, nitrogen, state
       if (farmId) {
         const farm = await db.collection('farms').findOne({ id: farmId })
         if (!farm) return ok({ error: 'Farm not found' }, 404)
@@ -533,6 +533,7 @@ async function handleRoute(request, { params }) {
         area = farm.areaInAcres
         soilPh = farm.soilPh
         nitrogen = farm.nitrogenKgPerHa
+        state = farm.state || 'India'
       } else {
         lat = Number(searchParams.get('lat'))
         lon = Number(searchParams.get('lon'))
@@ -540,12 +541,13 @@ async function handleRoute(request, { params }) {
         area = Number(searchParams.get('area')) || 5
         soilPh = searchParams.get('ph') ? Number(searchParams.get('ph')) : null
         nitrogen = searchParams.get('n') ? Number(searchParams.get('n')) : null
+        state = searchParams.get('state') || 'India'
       }
 
       const weather = await fetchWeather(lat, lon)
       const diagnostic = computeStressDiagnostic({
         weather, crop, areaInAcres: area, soilPh, nitrogenKgPerHa: nitrogen,
-        state: farmId ? (await db.collection('farms').findOne({ id: farmId }))?.state : searchParams.get('state') || 'India',
+        state,
       })
       diagnostic.economics = computeFarmEconomics({ crop, areaInAcres: area, diagnostic })
       const spray = await fetchSprayWindow(lat, lon, 'Foliar')
@@ -576,6 +578,8 @@ async function handleRoute(request, { params }) {
           sprayWindowCount: spray.windows.length,
           sprayWindowStatus: spray.status,
           sprayWindowError: spray.error || null,
+          sprayWindowSource: spray.source || null,
+          sprayWindowFallback: Boolean(spray.fallback),
           hydricStress: hydric.ok,
         },
         location: { latitude: lat, longitude: lon },

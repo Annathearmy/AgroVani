@@ -75,6 +75,15 @@ export default function App() {
   const { locale, t } = useLanguage()
   const copy = t.dashboard
 
+  function formatSprayTime(value) {
+    if (!value) return '—'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return new Intl.DateTimeFormat(locale === 'hi' ? 'hi-IN' : locale === 'pa' ? 'pa-IN' : 'en-IN', {
+      weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    }).format(date)
+  }
+
   function stopVoice() {
     if (recorderRef.current?.state === 'recording') {
       recorderRef.current.stop()
@@ -427,9 +436,9 @@ export default function App() {
                   {diag && <span className="text-sm text-slate-500">TMAX {diag.tmax?.toFixed(1)}°C • TMIN {diag.tmin?.toFixed(1)}°C</span>}
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <StressGauge label="Diurnal Heat" value={diag?.scores?.diurnal} icon={Sun} />
-                  <StressGauge label="Night Heat" value={diag?.scores?.night} icon={Moon} />
-                  <StressGauge label="Frost" value={diag?.scores?.frost} icon={Snowflake} />
+                  <StressGauge label={t.diurnalHeat} value={diag?.scores?.diurnal} icon={Sun} />
+                  <StressGauge label={t.nightHeat} value={diag?.scores?.night} icon={Moon} />
+                  <StressGauge label={t.frost} value={diag?.scores?.frost} icon={Snowflake} />
                   <div className="rounded-[24px] border border-white/70 bg-white/75 p-5 shadow-[0_12px_28px_rgba(0,0,0,0.04)] backdrop-blur-md">
                     <div className="flex items-center gap-2 text-slate-500"><Droplets className="h-4 w-4" /><span className="text-[10px] font-bold uppercase tracking-[0.2em]">{copy.droughtIndex}</span></div>
                     <p className="mt-3 text-4xl font-bold text-slate-900">{diag?.droughtIndex?.value?.toFixed(2) ?? '—'}</p>
@@ -440,23 +449,23 @@ export default function App() {
 
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="glass-card card-3d lg:col-span-2">
-                  <div className="flex items-center gap-2 text-emerald-600"><Sparkles className="h-5 w-5" /><span className="text-[10px] font-bold uppercase tracking-[0.28em]">Recommendation</span></div>
+                  <div className="flex items-center gap-2 text-emerald-600"><Sparkles className="h-5 w-5" /><span className="text-[10px] font-bold uppercase tracking-[0.28em]">{copy.recommendationTitle}</span></div>
                   {diag ? (
                     <>
                       <h3 className="mt-4 text-2xl font-bold text-slate-900">{diag.product.product}</h3>
                       <p className="text-sm font-semibold text-emerald-700">{diag.product.brand}</p>
                       <p className="mt-3 text-sm leading-6 text-slate-600">{diag.product.rationale}</p>
-                      {diag.product.requiresConfirmation && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-900">Confirm the pest, disease, weed, crop registration, and current label before applying any product.</p>}
+                      {diag.product.requiresConfirmation && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-900">{copy.confirmLabel}</p>}
                       {diag.product.options?.length > 0 && (
                         <div className="mt-5 space-y-2">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-slate-500">Potential Syngenta options</p>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-slate-500">{copy.options}</p>
                           {diag.product.options.map((option) => (
                             <div key={option.name} className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
                               <p className="text-sm font-semibold text-emerald-900">{option.name} <span className="font-normal text-emerald-700">· {option.type}</span></p>
                               {option.composition && <p className="mt-1 text-xs font-medium text-emerald-700">{option.composition}</p>}
                               <p className="mt-1 text-xs leading-5 text-emerald-800">{option.use}</p>
-                              {option.dosage && <p className="mt-1 text-[11px] font-semibold leading-4 text-amber-800">Dosage: {option.dosage.rateMlPerLitre} ml/L · {option.dosage.waterLitres} L water · {option.dosage.productMl} ml product · {option.dosage.applicationsPerDay} time/day · {option.dosage.applicationsPerSeason} applications</p>}
-                              {option.dosage && <p className="mt-1 text-[11px] leading-4 text-emerald-800">Region: {option.dosage.region} · Interval: {option.dosage.intervalDays} days · {option.dosage.timing}</p>}
+                              {option.dosage && <p className="mt-1 text-[11px] font-semibold leading-4 text-amber-800">{copy.dosage}: {option.dosage.rateMlPerLitre} ml/L · {option.dosage.waterLitres} L water · {option.dosage.productMl} ml product · {option.dosage.applicationsPerDay} {copy.timesPerDay} · {option.dosage.applicationsPerSeason} {copy.applications}</p>}
+                              {option.dosage && <p className="mt-1 text-[11px] leading-4 text-emerald-800">{copy.region}: {option.dosage.region} · {copy.interval}: {option.dosage.intervalDays} days · {option.dosage.timing}</p>}
                               {option.dosageGuidance && <p className="mt-1 text-[11px] leading-4 text-amber-800">{option.dosageGuidance}</p>}
                             </div>
                           ))}
@@ -464,31 +473,32 @@ export default function App() {
                       )}
                       {diag.product.options?.length > 0 ? (
                         <div className="mt-5 rounded-2xl bg-slate-900 p-4 text-white">
-                          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-300"><FlaskConical className="h-4 w-4" /> Field application plan</div>
-                          <p className="mt-3 text-sm text-slate-200">Quantities above are calculated for {diag.dosing.acres} acres in {diag.dosing.region}. Apply once per spray event, not multiple times in one day.</p>
+                          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-300"><FlaskConical className="h-4 w-4" /> {copy.fieldPlan}</div>
+                          <p className="mt-3 text-sm text-slate-200">{copy.fieldPlanText(diag.dosing.acres, diag.dosing.region)}</p>
                         </div>
                       ) : (
-                        <div className="mt-5 rounded-2xl bg-slate-100 p-4 text-sm text-slate-700">No product or dose is selected from weather alone. Confirm the pest, disease, or weed with crop scouting or Crop Cam first.</div>
+                        <div className="mt-5 rounded-2xl bg-slate-100 p-4 text-sm text-slate-700">{copy.noProduct}</div>
                       )}
                     </>
                   ) : <p className="mt-4 text-sm text-slate-500">Computing recommendation…</p>}
                 </div>
 
                 <div className="glass-card card-3d">
-                  <div className="flex items-center gap-2 text-slate-500"><Clock className="h-5 w-5" /><span className="text-[10px] font-bold uppercase tracking-[0.28em]">Optimal Spray Window</span></div>
-                  <p className="mt-2 text-xs text-slate-400">Syngenta CE Hub</p>
-                  {syngentaApi && <p className="mt-1 text-xs text-slate-500">Live API: {syngentaApi.sprayWindow ? 'connected' : 'unavailable'} · Hydric stress: {syngentaApi.hydricStress ? 'connected' : 'unavailable'}</p>}
+                  <div className="flex items-center gap-2 text-slate-500"><Clock className="h-5 w-5" /><span className="text-[10px] font-bold uppercase tracking-[0.28em]">{copy.sprayWindow}</span></div>
+                  <p className="mt-2 text-xs text-slate-400">{copy.sprayProvider}: {syngentaApi?.sprayWindowSource || '—'}</p>
+                  {syngentaApi && <p className="mt-1 text-xs text-slate-500">{copy.liveApi}: {syngentaApi.sprayWindow ? copy.connected : copy.unavailable} · {copy.spraySource}: {syngentaApi.sprayWindowSource || '—'}</p>}
                   {sprayWindows.length > 0 ? (
                     <ul className="mt-4 space-y-2 text-sm text-emerald-800">
                       {sprayWindows.slice(0, 4).map((w, i) => (
-                        <li key={i} className="rounded-xl bg-emerald-50 px-3 py-2">{w.startTime || w.date || 'Window'} {w.endTime ? `→ ${w.endTime}` : ''}</li>
+                        <li key={i} className="rounded-xl bg-emerald-50 px-3 py-2">
+                          <p className="font-semibold">{formatSprayTime(w.startTime || w.date)} {w.endTime ? `→ ${formatSprayTime(w.endTime)}` : ''}</p>
+                          {(w.temperatureC != null || w.rainChancePercent != null || w.windKph != null) && <p className="mt-1 text-xs">{copy.temperature}: {w.temperatureC ?? '—'}°C · {copy.rainChance}: {w.rainChancePercent ?? '—'}% · {copy.wind}: {w.windKph ?? '—'} km/h · {copy.humidity}: {w.humidityPercent ?? '—'}%</p>}
+                        </li>
                       ))}
                     </ul>
                   ) : (
                     <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
-                      {syngentaApi?.sprayWindow
-                        ? 'The live CE Hub API returned no eligible spray window for this location and forecast period.'
-                        : `The live CE Hub spray-window API is unavailable${syngentaApi?.sprayWindowError ? `: ${syngentaApi.sprayWindowError}` : '.'}`}
+                      {syngentaApi?.sprayWindow ? copy.noWindow : `${copy.sprayUnavailable}${syngentaApi?.sprayWindowError ? `: ${syngentaApi.sprayWindowError}` : ''}`}
                     </div>
                   )}
                   <BookMachineryCard farm={farm} defaultType="Boom Sprayer" triggerLabel="Book Sprayer Machine" triggerClass="pill-dark mt-4 w-full" />
