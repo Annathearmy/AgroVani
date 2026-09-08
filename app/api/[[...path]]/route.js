@@ -3,8 +3,9 @@ import { v4 as uuidv4 } from 'uuid'
 import { NextResponse } from 'next/server'
 import { fetchWeather } from '@/lib/adapters/weather'
 import { fetchSprayWindow, fetchHydricStress, geocodeLocation } from '@/lib/adapters/cehub'
-import { computeStressDiagnostic, CROP_LIST } from '@/lib/calculations/cropRecommendation'
+import { computeStressDiagnostic, CROP_LIST, PRODUCT_CATALOG } from '@/lib/calculations/cropRecommendation'
 import { computeResidue, DISTRICT_DATA, getDistrictData } from '@/lib/calculations/residueRecommendation'
+import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/ai/gemini'
 import { createSupabaseDb, getSupabaseServerClient } from '@/lib/supabase/server'
 
 let client
@@ -204,8 +205,7 @@ async function createAssistantReply(db, body) {
     farmContext,
     liveContext,
   ].join('\n')
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
-
+  const model = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -228,6 +228,96 @@ async function createAssistantReply(db, body) {
   return reply ? ok({ reply }) : ok({ error: 'Assistant returned an empty response' }, 502)
 }
 
+async function createGeminiAudioReply(db, body) {
+  if (!process.env.GEMINI_API_KEY) return ok({ error: 'Gemini voice assistant is not configured' }, 503)
+
+  const audioData = typeof body?.audio === 'string' ? body.audio : ''
+  if (!audioData) return ok({ error: 'Please record a voice question first.' }, 400)
+
+  const farm = body.farmId ? await db.collection('farms').findOne({ id: body.farmId }) : null
+  const farmContext = farm
+    ? `Farmer: ${farm.name}. Location: ${farm.village}, ${farm.district}, ${farm.state}. Crop: ${farm.cropType}. Area: ${farm.areaInAcres} acres. Soil pH: ${farm.soilPh ?? 'unknown'}. Nitrogen: ${farm.nitrogenKgPerHa ?? 'unknown'} kg/ha.`
+    : 'No farm profile is available yet.'
+  const language = body.locale === 'hi' ? 'Hindi' : body.locale === 'pa' ? 'Punjabi' : 'English'
+  const instruction = [
+    'You are AgroVani, a concise and practical agricultural voice advisor for Indian farmers.',
+    `Understand the recorded farmer question and answer in ${language}, or in the language spoken by the farmer.`,
+    'Return only the spoken answer as plain text, with short sentences and no markdown.',
+    'Never invent weather, disease diagnoses, pesticide doses, or prices. Recommend a local agronomist for high-risk chemical questions.',
+    farmContext,
+    body.context ? `Current dashboard data: ${JSON.stringify(body.context)}` : '',
+  ].filter(Boolean).join('\n')
+  const mimeType = typeof body.mimeType === 'string' && body.mimeType.startsWith('audio/') ? body.mimeType : 'audio/webm'
+  const base64 = audioData.includes('base64,') ? audioData.split('base64,')[1] : audioData
+  const model = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
+
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: instruction }] },
+      contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mimeType, data: base64 } }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
+    }),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    console.error('Gemini audio assistant error:', data)
+    return ok({ error: 'Gemini could not understand the recording. Please try again.' }, 502)
+  }
+  const reply = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim()
+  return reply ? ok({ reply }) : ok({ error: 'Gemini returned an empty voice response' }, 502)
+}
+
+async function createGeminiVisionDiagnosis(body) {
+  if (!process.env.GEMINI_API_KEY) {
+    return ok({ error: 'Gemini API is not configured. Add GEMINI_API_KEY to the server environment.' }, 503)
+  }
+
+  const imageData = typeof body?.image === 'string' ? body.image : ''
+  if (!imageData) {
+    return ok({ error: 'Please upload a crop image before running the diagnosis.' }, 400)
+  }
+
+  const mimeType = typeof body?.mimeType === 'string' && body.mimeType.startsWith('image/') ? body.mimeType : 'image/jpeg'
+  const base64 = imageData.includes('base64,') ? imageData.split('base64,')[1] : imageData
+  const model = process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash'
+
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: buildGeminiVisionPrompt({ cropType: body?.cropType || 'Rice', farmName: body?.farmName || 'Farmer', location: body?.location || '' }) },
+          { inline_data: { mime_type: mimeType, data: base64 } },
+        ],
+      }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 300 },
+    }),
+  })
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    console.error('Gemini vision error:', data)
+    return ok({ error: 'Gemini crop diagnosis failed. Check the image payload and GEMINI_API_KEY.' }, 502)
+  }
+
+  const parsed = parseGeminiResponse(data)
+  const mapped = mapSymptomsToRecommendation({ cropType: body?.cropType || 'Rice', issue: parsed.issue, symptoms: parsed.symptoms || [parsed.issue] })
+
+  return ok({
+    ...parsed,
+    mappedRecommendation: mapped,
+    detectedIssue: parsed.issue || mapped.product,
+    recommendation: parsed.recommendation || mapped.recommendation,
+    product: parsed.product || mapped.product,
+    category: parsed.category || mapped.category,
+    confidence: Number(parsed.confidence ?? 0.7),
+  })
+}
+
 async function handleRoute(request, { params }) {
   const { path = [] } = await params
   const route = `/${path.join('/')}`
@@ -235,10 +325,26 @@ async function handleRoute(request, { params }) {
   const { searchParams } = new URL(request.url)
 
   try {
+    if (route === '/crop-diagnose' && method === 'POST') {
+      return createGeminiVisionDiagnosis(await request.json())
+    }
+
+    if (route === '/products' && method === 'GET') {
+      const category = searchParams.get('category')
+      const crop = searchParams.get('crop')
+      const products = PRODUCT_CATALOG.filter((product) => !category || product.category === category)
+        .filter((product) => !crop || !product.crops || product.crops.includes(crop))
+      return ok({ products, count: products.length })
+    }
+
     const db = await connectToDatabase()
 
     if (route === '/assistant' && method === 'POST') {
       return createAssistantReply(db, await request.json())
+    }
+
+    if (route === '/assistant/audio' && method === 'POST') {
+      return createGeminiAudioReply(db, await request.json())
     }
 
     if ((route === '/' || route === '/root') && method === 'GET') {
@@ -287,6 +393,8 @@ async function handleRoute(request, { params }) {
         const { _id, ...clean } = farm
         return ok(clean)
       }
+      const farmCount = await db.collection('farms').countDocuments()
+      if (farmCount === 0) await seedDb(db)
       const farms = await db.collection('farms').find({}).limit(100).toArray()
       return ok(farms.map(({ _id, ...rest }) => rest))
     }
