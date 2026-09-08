@@ -206,7 +206,6 @@ async function createAssistantReply(db, body) {
     liveContext,
   ].join('\n')
   const model = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
-
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
