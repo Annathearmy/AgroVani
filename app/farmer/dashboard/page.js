@@ -455,16 +455,21 @@ export default function App() {
                               <p className="text-sm font-semibold text-emerald-900">{option.name} <span className="font-normal text-emerald-700">· {option.type}</span></p>
                               {option.composition && <p className="mt-1 text-xs font-medium text-emerald-700">{option.composition}</p>}
                               <p className="mt-1 text-xs leading-5 text-emerald-800">{option.use}</p>
-                              {option.dosage && <p className="mt-1 text-[11px] font-semibold leading-4 text-amber-800">Dosage: {option.dosage}</p>}
+                              {option.dosage && <p className="mt-1 text-[11px] font-semibold leading-4 text-amber-800">Dosage: {option.dosage.rateMlPerLitre} ml/L · {option.dosage.waterLitres} L water · {option.dosage.productMl} ml product · {option.dosage.applicationsPerDay} time/day · {option.dosage.applicationsPerSeason} applications</p>}
+                              {option.dosage && <p className="mt-1 text-[11px] leading-4 text-emerald-800">Region: {option.dosage.region} · Interval: {option.dosage.intervalDays} days · {option.dosage.timing}</p>}
                               {option.dosageGuidance && <p className="mt-1 text-[11px] leading-4 text-amber-800">{option.dosageGuidance}</p>}
                             </div>
                           ))}
                         </div>
                       )}
-                      <div className="mt-5 rounded-2xl bg-slate-900 p-4 text-white">
-                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-300"><FlaskConical className="h-4 w-4" /> Label-safe application</div>
-                        <p className="mt-3 text-sm text-slate-200">{diag.dosing.message}</p>
-                      </div>
+                      {diag.product.options?.length > 0 ? (
+                        <div className="mt-5 rounded-2xl bg-slate-900 p-4 text-white">
+                          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-300"><FlaskConical className="h-4 w-4" /> Field application plan</div>
+                          <p className="mt-3 text-sm text-slate-200">Quantities above are calculated for {diag.dosing.acres} acres in {diag.dosing.region}. Apply once per spray event, not multiple times in one day.</p>
+                        </div>
+                      ) : (
+                        <div className="mt-5 rounded-2xl bg-slate-100 p-4 text-sm text-slate-700">No product or dose is selected from weather alone. Confirm the pest, disease, or weed with crop scouting or Crop Cam first.</div>
+                      )}
                     </>
                   ) : <p className="mt-4 text-sm text-slate-500">Computing recommendation…</p>}
                 </div>
