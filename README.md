@@ -1,5 +1,5 @@
 # 🌾 AgroVani — Smart Agricultural Ecosystem & Sustainable Residue Management
-🔗 **Live Production Deployment:** [https://agro-vani-kbr2x1z10-annesha2.vercel.app](https://agro-vani-kbr2x1z10-annesha2.vercel.app)
+🔗 **Live Production Deployment:** [https://agro-vani.vercel.app](https://agro-vani.vercel.app)
 
 > **Bridging the gap between farmers, machinery sellers, and sustainable agriculture through data-driven advisory, localized insights, and circular residue management.**
 
