@@ -5,6 +5,7 @@ import React from 'react'
 import Link from 'next/link'
 import FarmMapCard from '@/components/farmer/FarmMapCard'
 import BookMachineryCard from '@/components/farmer/BookMachineryCard'
+import LiveKitVoiceAgent from '@/components/farmer/LiveKitVoiceAgent'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 import {
@@ -53,6 +54,7 @@ export default function App() {
   const [tab, setTab] = useState('crop')
   const [stress, setStress] = useState(null)
   const [residue, setResidue] = useState(null)
+  const [machinery, setMachinery] = useState([])
   const [loading, setLoading] = useState(false)
   const [voiceText, setVoiceText] = useState('')
   const [voiceReply, setVoiceReply] = useState('')
@@ -253,12 +255,6 @@ export default function App() {
   }, [cameraFile])
 
   useEffect(() => {
-    if (cameraFile && !cameraDiagnosis && !cameraLoading) {
-      diagnoseCropImage(cameraFile)
-    }
-  }, [cameraFile, cameraDiagnosis, cameraLoading])
-
-  useEffect(() => {
     const p = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
     if (p === 'crop') setTab('crop')
     if (p === 'residue') setTab('residue')
@@ -294,6 +290,17 @@ export default function App() {
       })
       .then(setResidue)
       .catch((error) => console.error('Residue loading failed:', error))
+    fetch(`/api/machinery?district=${encodeURIComponent(f.district || '')}`)
+      .then(async (r) => {
+        const data = await r.json()
+        if (!r.ok || !Array.isArray(data)) throw new Error(data.error || 'Machinery data unavailable')
+        return data
+      })
+      .then(setMachinery)
+      .catch((error) => {
+        console.error('Machinery loading failed:', error)
+        setMachinery([])
+      })
     fetch(`/api/stress?farmId=${f.id}`)
       .then(async (r) => {
         const data = await r.json()
@@ -384,9 +391,13 @@ export default function App() {
                 <h3 className="text-xl font-semibold text-slate-900">Equipment</h3>
                 <p className="mt-2 text-sm text-slate-600">Nearby custom hiring centers</p>
                 <ul className="mt-4 space-y-3 text-sm text-slate-700">
-                  <li className="flex items-center justify-between rounded-2xl bg-white/60 px-4 py-3"><span>Happy Seeder</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Available</span></li>
-                  <li className="flex items-center justify-between rounded-2xl bg-white/60 px-4 py-3"><span>Baler</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Available</span></li>
-                  <li className="flex items-center justify-between rounded-2xl bg-white/60 px-4 py-3"><span>Mulcher</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Available</span></li>
+                  {machinery.slice(0, 4).map((item) => (
+                    <li key={item.id || `${item.type}-${item.provider}`} className="flex items-center justify-between rounded-2xl bg-white/60 px-4 py-3">
+                      <span>{item.type}<span className="ml-2 text-xs text-slate-500">{item.provider}</span></span>
+                      <span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.available === false ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>{item.available === false ? 'Unavailable' : 'Available'}</span>
+                    </li>
+                  ))}
+                  {!machinery.length && <li className="rounded-2xl bg-white/60 px-4 py-3 text-slate-500">No machinery records found for this district.</li>}
                 </ul>
                 <div className="mt-auto pt-4">
                   <BookMachineryCard farm={farm} defaultType="Happy Seeder" triggerLabel="Request Equipment" triggerClass="pill-dark w-full" />
@@ -439,6 +450,7 @@ export default function App() {
                               <p className="text-sm font-semibold text-emerald-900">{option.name} <span className="font-normal text-emerald-700">· {option.type}</span></p>
                               {option.composition && <p className="mt-1 text-xs font-medium text-emerald-700">{option.composition}</p>}
                               <p className="mt-1 text-xs leading-5 text-emerald-800">{option.use}</p>
+                              {option.dosageGuidance && <p className="mt-1 text-[11px] leading-4 text-amber-800">{option.dosageGuidance}</p>}
                             </div>
                           ))}
                         </div>
@@ -472,11 +484,9 @@ export default function App() {
 
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="glass-card">
-                  <div className="flex items-center gap-2 text-slate-900"><Mic className="h-5 w-5 text-emerald-600" /><h3 className="text-xl font-semibold">Voice Advisory</h3></div>
-                  <p className="mt-2 text-sm text-slate-600">Talk naturally in Punjabi, Hindi, Marathi, Tamil or Telugu. The AgroVani agent listens and replies.</p>
-                  <button onClick={startVoice} aria-label={listening ? 'Stop voice advisory' : 'Start voice advisory'} aria-pressed={listening} className={`mt-5 flex h-14 w-14 items-center justify-center rounded-full shadow-sm ${listening ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}><Mic className="h-6 w-6" /></button>
-                  <p className="mt-3 text-xs text-slate-500">{voiceText || (voiceMode === 'thinking' ? 'Thinking...' : listening ? 'Listening... Tap again to stop.' : 'Tap the microphone and ask your question.')}</p>
-                  {voiceReply && <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{voiceReply}</p>}
+                  <div className="flex items-center gap-2 text-slate-900"><Mic className="h-5 w-5 text-emerald-600" /><h3 className="text-xl font-semibold">Live Voice Advisory</h3></div>
+                  <p className="mt-2 text-sm text-slate-600">Talk naturally with the Gemini Live agent in Punjabi, Hindi, Marathi, Tamil, Telugu, or English.</p>
+                  <LiveKitVoiceAgent />
                 </div>
 
                 <div className="glass-card">
@@ -513,6 +523,7 @@ export default function App() {
                       <p className="mt-1">Severity: <span className="font-semibold">{cameraDiagnosis.severity}</span> · Confidence: <span className="font-semibold">{Number(cameraDiagnosis.confidence || 0).toFixed(2)}</span></p>
                       <p className="mt-2 text-sm text-emerald-800">{cameraDiagnosis.recommendation || cameraDiagnosis.mappedRecommendation?.recommendation}</p>
                       {cameraDiagnosis.product && <p className="mt-2"><span className="font-semibold">Recommended product:</span> {cameraDiagnosis.product}</p>}
+                      {cameraDiagnosis.dosageGuidance && <p className="mt-2 border-t border-emerald-200 pt-2 text-xs leading-5 text-emerald-800"><span className="font-semibold">Label-safe application:</span> {cameraDiagnosis.dosageGuidance}</p>}
                     </div>
                   )}
                   <p className="mt-3 text-xs text-slate-500">{cameraFile ? 'Leaf image ready for diagnosis.' : 'Use the camera or upload a leaf photo to prepare a crop diagnosis.'}</p>
