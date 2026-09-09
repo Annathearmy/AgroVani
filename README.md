@@ -131,6 +131,7 @@ AgroVani/
 │   ├── api/[[...path]]/       # Unified API routing layer
 │   ├── farmer/
 │   │   ├── dashboard/         # Farmer core dashboard
+│   │   ├── advisory/           # Yield, mandi, MSP and report dashboard
 │   │   └── onboarding/        # Guided profile & field setup
 │   ├── seller/dashboard/      # Machinery inventory & bookings
 │   ├── login/                 # Role-based authentication
@@ -143,6 +144,9 @@ AgroVani/
 ├── lib/
 │   ├── adapters/              # Weather and CEHub data integration
 │   ├── calculations/          # Crop & stubble residue algorithms
+│   ├── data/                  # Clearly labeled demo mandi/MSP records
+│   ├── services/              # Yield, mandi and report business logic
+│   ├── utils/                 # Validation, freshness and formatting helpers
 │   ├── constants/             # Test IDs and application constants
 │   ├── i18n/                  # Language dictionaries (en, hi, pa)
 │   ├── supabase/              # Browser & server Supabase clients
@@ -168,3 +172,26 @@ AgroVani/
 Debayan Paul, Annesha Chakraborty, Ayan Chatterjee and Nikita Bose
 
 Built with passion for sustainable agriculture and rural empowerment.
+
+## Farmer Advisory MVP
+
+Open `/farmer/advisory` for the mobile-friendly yield and mandi dashboard.
+The API routes are:
+
+- `POST /api/yield-prediction`: observational baseline, range, confidence, uncertainty risk, and estimated treatment advantage.
+- `GET /api/mandi`: commodity, state, and market filters with latest modal price, seven-day rows, source, and freshness.
+- `GET /api/msp`: premium/discount versus the configured MSP record and a soft signal.
+- `POST /api/report/pdf`: one-page printable PDF summary.
+- `POST /api/report/whatsapp`: short forwardable farmer-group message.
+
+The seeded mandi rows in `lib/data/mandiDemo.js` are demo records shaped like Agmarknet data and are explicitly marked non-official. They must be replaced by verified Agmarknet/Agmarknet 2.0 records before production use. Missing or stale values are returned as `insufficient data`; the UI never guesses.
+
+### Codespaces setup
+
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+The MVP uses the existing Mongo/Supabase persistence boundary for farm records and keeps advisory seed data isolated in `lib/data`. Set `ADVISORY_DB_PATH` when connecting a SQLite adapter for deployment; the service layer is storage-independent so that adapter can be enabled without changing the UI or API contract. No model training dependency is required: the current baseline is clearly labeled and includes MAE, RMSE, and calibration-error helpers for backtesting once historical observations are available.

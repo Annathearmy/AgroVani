@@ -8,6 +8,9 @@ import { computeStressDiagnostic, computeFarmEconomics, CROP_LIST, PRODUCT_CATAL
 import { computeResidue, computeFieldReadiness, DISTRICT_DATA, getDistrictData } from '@/lib/calculations/residueRecommendation'
 import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/ai/gemini'
 import { createSupabaseDb, getSupabaseServerClient } from '@/lib/supabase/server'
+import { predictYield } from '@/lib/services/yieldModel'
+import { compareMsp, lookupMandiPrices } from '@/lib/services/mandiService'
+import { buildFarmReportPdf, createWhatsAppText } from '@/lib/services/reportService'
 
 let client
 let db
@@ -150,6 +153,13 @@ function handleCORS(response) {
 
 function ok(data, status = 200) {
   return handleCORS(NextResponse.json(data, { status }))
+}
+
+function pdf(data) {
+  const response = new NextResponse(data, { status: 200 })
+  response.headers.set('Content-Type', 'application/pdf')
+  response.headers.set('Content-Disposition', 'inline; filename="agrovani-farm-report.pdf"')
+  return handleCORS(response)
 }
 
 export async function OPTIONS() {
@@ -371,6 +381,34 @@ async function handleRoute(request, { params }) {
             : 'Verify the current registered India label after confirming the crop, target, formulation, water volume, and safety interval. The API never invents a chemical dose.',
         }))
       return ok({ products, count: products.length })
+    }
+
+    if (route === '/mandi' && method === 'GET') {
+      return ok(lookupMandiPrices({
+        commodity: searchParams.get('commodity') || '',
+        state: searchParams.get('state') || '',
+        market: searchParams.get('market') || '',
+      }))
+    }
+
+    if (route === '/msp' && method === 'GET') {
+      const commodity = searchParams.get('commodity') || ''
+      const modalPrice = searchParams.get('modalPrice')
+      return ok(compareMsp({ commodity, modalPrice: modalPrice == null ? null : Number(modalPrice) }))
+    }
+
+    if (route === '/yield-prediction' && method === 'POST') {
+      const body = await request.json()
+      if (!body.crop || Number(body.areaInAcres) <= 0) return ok({ error: 'crop and a positive areaInAcres are required' }, 400)
+      return ok(predictYield(body))
+    }
+
+    if (route === '/report/whatsapp' && method === 'POST') {
+      return ok({ text: createWhatsAppText(await request.json()) })
+    }
+
+    if (route === '/report/pdf' && method === 'POST') {
+      return pdf(buildFarmReportPdf(await request.json()))
     }
 
     const db = await connectToDatabase()
