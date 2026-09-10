@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
 from flask import Flask, jsonify, render_template, request
 
 try:
@@ -74,13 +73,14 @@ def fallback_yield_percent(values: dict[str, float]) -> float:
 
 
 def predict_yield(values: dict[str, float]) -> tuple[float, str]:
-    features = pd.DataFrame([values], columns=FEATURES)
     if model is None:
         return fallback_yield_percent(values), 'fallback_heuristic'
-    prediction = float(np.asarray(model.predict(features)).reshape(-1)[0])
+
+    feature_vector = np.asarray([[values[feature] for feature in FEATURES]], dtype=float)
+    prediction = float(np.asarray(model.predict(feature_vector)).reshape(-1)[0])
     if not np.isfinite(prediction):
         raise ValueError('The model returned a non-finite prediction.')
-    return round(max(0, min(100, prediction)), 'random_forest')
+    return round(max(0, min(100, prediction))), 'random_forest'
 
 
 @app.get('/')
