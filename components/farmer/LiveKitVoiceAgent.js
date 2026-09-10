@@ -1,84 +1,103 @@
 'use client'
 
-import { useState } from 'react'
-import { LiveKitRoom, RoomAudioRenderer, StartAudio } from '@livekit/components-react'
-import { Mic, Phone, PhoneOff } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Mic, MicOff } from 'lucide-react'
 
-function LiveKitSession({ onEnd }) {
-  return (
-    <div className="mt-4 flex items-center gap-3">
-      <RoomAudioRenderer />
-      <StartAudio label="Enable speaker" />
-      <button type="button" onClick={onEnd} className="glass-btn border-red-200 text-red-700">
-        <PhoneOff className="mr-2 h-4 w-4" /> End live call
-      </button>
-    </div>
-  )
-}
-
-export default function LiveKitVoiceAgent() {
-  const [session, setSession] = useState(null)
+export default function LiveKitVoiceAgent({ farmId, locale = 'en', context }) {
+  const [recording, setRecording] = useState(false)
+  const [status, setStatus] = useState('')
+  const [reply, setReply] = useState('')
   const [error, setError] = useState('')
-  const [connecting, setConnecting] = useState(false)
-  const [connected, setConnected] = useState(false)
+  const recorderRef = useRef(null)
+  const streamRef = useRef(null)
+  const chunksRef = useRef([])
 
-  async function start() {
-    setError('')
-    setConnecting(true)
-    setConnected(false)
-    try {
-      const response = await fetch('/api/livekit/token', { method: 'POST' })
-      const data = await response.json()
-      if (!response.ok || !data.token || !data.url) throw new Error(data.error || 'LiveKit is not configured.')
-      setSession(data)
-    } catch (nextError) {
-      setError(nextError.message || 'Unable to start the live voice agent.')
-      setSession(null)
-    } finally {
-      setConnecting(false)
-    }
+  function stopRecording() {
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
   }
 
-  if (session) {
-    return (
-      <LiveKitRoom
-        token={session.token}
-        serverUrl={session.url}
-        connect
-        audio
-        video={false}
-        onConnected={() => {
-          setConnected(true)
-          setError('')
-        }}
-        onError={(nextError) => {
-          setConnected(false)
-          setError(nextError?.message || 'LiveKit could not connect to the voice agent.')
-        }}
-        onDisconnected={(reason) => {
-          setConnected(false)
-          setSession(null)
-          if (reason) setError(`Live voice session ended: ${reason}`)
-        }}
-        className="mt-4"
-      >
-        <LiveKitSession onEnd={() => {
-          setConnected(false)
-          setSession(null)
-        }} />
-        <p className="mt-2 text-xs font-medium text-slate-500">
-          {connected ? 'Connected. You can speak now.' : 'Connecting to the Gemini agent...'}
-        </p>
-        {error && <p role="alert" className="mt-2 text-xs font-medium text-amber-700">{error}</p>}
-      </LiveKitRoom>
-    )
+  async function startRecording() {
+    if (recording) {
+      stopRecording()
+      return
+    }
+
+    setError('')
+    setReply('')
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setError('Voice input needs a secure browser context and microphone support.')
+      return
+    }
+
+    let stream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) => MediaRecorder.isTypeSupported(type)) || ''
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      streamRef.current = stream
+      chunksRef.current = []
+      recorderRef.current = recorder
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data)
+      }
+      recorder.onerror = () => {
+        setError('Voice recording failed. Please try again.')
+        stream.getTracks().forEach((track) => track.stop())
+        setRecording(false)
+      }
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        chunksRef.current = []
+        recorderRef.current = null
+        streamRef.current?.getTracks().forEach((track) => track.stop())
+        streamRef.current = null
+        setRecording(false)
+        if (!blob.size) {
+          setStatus('No speech was recorded. Please try again.')
+          return
+        }
+
+        setStatus('Gemini is understanding your question...')
+        const reader = new FileReader()
+        reader.onload = async () => {
+          try {
+            const response = await fetch('/api/assistant/audio', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ audio: reader.result, mimeType: blob.type || 'audio/webm', farmId: farmId || null, locale, context }),
+            })
+            const data = await response.json()
+            if (!response.ok || !data.reply) throw new Error(data.error || 'Gemini voice assistant error')
+            setReply(data.reply)
+            setStatus('Question answered by Gemini.')
+            if ('speechSynthesis' in window) {
+              window.speechSynthesis.cancel()
+              window.speechSynthesis.speak(new SpeechSynthesisUtterance(data.reply))
+            }
+          } catch (nextError) {
+            setError(nextError.message || 'Gemini could not answer right now. Try again.')
+            setStatus('')
+          }
+        }
+        reader.readAsDataURL(blob)
+      }
+      recorder.start()
+      setRecording(true)
+      setStatus('Listening... Tap again when you finish your question.')
+    } catch (nextError) {
+      stream?.getTracks().forEach((track) => track.stop())
+      setError(nextError.name === 'NotAllowedError' ? 'Microphone permission was denied.' : nextError.message || 'Unable to start voice recording.')
+      setRecording(false)
+    }
   }
 
   return (
     <div className="mt-4">
-      <button type="button" onClick={start} disabled={connecting} className="pill-dark">
-        {connecting ? <span>Connecting…</span> : <><Phone className="mr-2 h-4 w-4" /> Start live Gemini agent</>}
+      <button type="button" onClick={startRecording} className={recording ? 'glass-btn border-red-200 text-red-700' : 'pill-dark'}>
+        {recording ? <><MicOff className="mr-2 h-4 w-4" /> Stop recording</> : <><Mic className="mr-2 h-4 w-4" /> Ask Gemini by voice</>}
       </button>
+      {status && <p className="mt-2 text-xs font-medium text-slate-500">{status}</p>}
+      {reply && <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm leading-6 text-emerald-900">{reply}</p>}
       {error && <p role="alert" className="mt-2 text-xs font-medium text-amber-700">{error}</p>}
     </div>
   )

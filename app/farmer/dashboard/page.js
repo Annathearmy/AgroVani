@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import React from 'react'
 import Link from 'next/link'
 import FarmMapCard from '@/components/farmer/FarmMapCard'
@@ -11,7 +11,7 @@ import { useLanguage } from '@/lib/i18n/LanguageContext'
 import { getRecommendationCopy } from '@/lib/i18n/recommendation'
 import {
   Wheat, FlaskConical, ArrowLeft, TrendingUp, Sun, Moon, Snowflake,
-  Droplets, Sparkles, Clock, Mic, Camera, IndianRupee, AlertTriangle, Loader2,
+  Droplets, Sparkles, Clock, Mic, Camera, IndianRupee, AlertTriangle, Loader2, X,
 } from 'lucide-react'
 
 class DebugBoundary extends React.Component {
@@ -55,13 +55,27 @@ export default function App() {
   const [tab, setTab] = useState('crop')
   const [stress, setStress] = useState(null)
   const [residue, setResidue] = useState(null)
+  const [agriLoop, setAgriLoop] = useState(null)
   const [machinery, setMachinery] = useState([])
   const [loading, setLoading] = useState(false)
+  const [marketplaceListings, setMarketplaceListings] = useState([])
+  const [marketplaceMessage, setMarketplaceMessage] = useState('')
+  const [chatMessages, setChatMessages] = useState([
+    { role: 'assistant', text: 'Hello farmer! I am AgroSaathi. I can track your crop cycle, residue plan, and logistics status.' },
+  ])
+  const [chatInput, setChatInput] = useState('')
+  const [chatBusy, setChatBusy] = useState(false)
+  const [orderReceipt, setOrderReceipt] = useState(null)
   const [voiceText, setVoiceText] = useState('')
   const [voiceReply, setVoiceReply] = useState('')
   const [listening, setListening] = useState(false)
   const [voiceMode, setVoiceMode] = useState('idle')
   const [cameraFile, setCameraFile] = useState(null)
+  const liveDispatch = [
+    { name: 'Sandeep', eta: '5 min', load: '12.4 qtl', status: 'Pickup in progress' },
+    { name: 'Harpreet', eta: '11 min', load: '8.8 qtl', status: 'Residue buyer route' },
+    { name: 'Balwan', eta: '18 min', load: '7.3 qtl', status: 'Seed drop en route' },
+  ]
   const [cameraPreview, setCameraPreview] = useState('')
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraError, setCameraError] = useState('')
@@ -89,6 +103,15 @@ export default function App() {
     if (Number.isNaN(date.getTime())) return value
     return new Intl.DateTimeFormat(locale === 'hi' ? 'hi-IN' : locale === 'pa' ? 'pa-IN' : 'en-IN', {
       weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    }).format(date)
+  }
+
+  function formatShortDate(value) {
+    if (!value) return '—'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return new Intl.DateTimeFormat(locale === 'hi' ? 'hi-IN' : locale === 'pa' ? 'pa-IN' : 'en-IN', {
+      month: 'short', day: 'numeric',
     }).format(date)
   }
 
@@ -304,14 +327,27 @@ export default function App() {
     setLoading(true)
     setStress(null)
     setResidue(null)
+    setAgriLoop(null)
+    setMarketplaceListings([])
+    setMarketplaceMessage('')
+
     fetch(`/api/residue?farmId=${f.id}`)
       .then(async (r) => {
         const data = await r.json()
         if (!r.ok || data.error) throw new Error(data.error || 'Residue data unavailable')
+        setResidue(data)
         return data
       })
-      .then(setResidue)
-      .catch((error) => console.error('Residue loading failed:', error))
+      .then(async (data) => {
+        const orderValue = Number(data?.totalValueINR || 100000)
+        const response = await fetch(`/api/agri-loop?farmId=${f.id}&orderValue=${encodeURIComponent(orderValue)}`)
+        const agriData = await response.json()
+        if (!response.ok || agriData.error) throw new Error(agriData.error || 'Agri loop data unavailable')
+        setAgriLoop(agriData)
+        return agriData
+      })
+      .catch((error) => console.error('Agri loop loading failed:', error))
+
     fetch(`/api/machinery?district=${encodeURIComponent(f.district || '')}`)
       .then(async (r) => {
         const data = await r.json()
@@ -323,6 +359,15 @@ export default function App() {
         console.error('Machinery loading failed:', error)
         setMachinery([])
       })
+
+    fetch('/api/marketplace/listings')
+      .then(async (r) => {
+        const data = await r.json()
+        if (!r.ok || !Array.isArray(data)) throw new Error(data.error || 'Marketplace listings unavailable')
+        setMarketplaceListings(data.slice(0, 4))
+      })
+      .catch((error) => console.error('Marketplace loading failed:', error))
+
     fetch(`/api/stress?farmId=${f.id}`)
       .then(async (r) => {
         const data = await r.json()
@@ -334,11 +379,110 @@ export default function App() {
       .finally(() => setLoading(false))
   }, [])
 
+  async function placeMarketplaceOrder(listing) {
+    if (!listing || !farm) return
+    const quantity = Number(window.prompt(`How many units of ${listing.name} do you want to buy?`, '1')) || 1
+    const payload = {
+      sellerId: listing.sellerId,
+      listingId: listing.id,
+      farmId: farm.id,
+      quantity,
+      totalInr: Number(listing.priceInr) * quantity,
+    }
+
+    try {
+      const response = await fetch('/api/marketplace/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Unable to place order')
+      const grossTotal = Number(data.totalInr || payload.totalInr)
+      const incentive = agriLoop?.incentive || {}
+      const incentiveAmount = Math.round(grossTotal * (Number(incentive.incentivePct || 12) / 100))
+      const repeatDiscount = Math.round(grossTotal * 0.05)
+      const netPayable = Math.max(0, grossTotal - incentiveAmount - repeatDiscount)
+      setMarketplaceMessage(`Order placed: ${quantity} x ${listing.name} for ₹${grossTotal.toLocaleString('en-IN')}`)
+      setOrderReceipt({
+        orderId: data.id,
+        listingName: listing.name,
+        quantity,
+        grossTotal,
+        incentiveAmount,
+        incentivePct: incentive.incentivePct || 12,
+        repeatDiscount,
+        netPayable,
+      })
+    } catch (error) {
+      setMarketplaceMessage(error.message || 'Unable to place order')
+    }
+  }
+
   useEffect(() => { if (farm) loadData(farm) }, [farm, loadData])
 
   const diag = stress?.diagnostic
   const sprayWindows = stress?.sprayWindow || []
   const syngentaApi = stress?.syngentaApi
+
+  const cropTimeline = useMemo(() => {
+    const fallback = [
+      { label: 'Field prep', date: '2026-06-03', status: 'Soil moisture stable', confidence: 92, stage: 'Preparation' },
+      { label: 'Sowing window', date: '2026-06-15', status: 'Ideal for direct seeding', confidence: 89, stage: 'Sowing' },
+      { label: 'Vegetative growth', date: '2026-07-18', status: 'Nitrogen needs monitoring', confidence: 84, stage: 'Growth' },
+      { label: 'Harvest ready', date: '2026-10-10', status: 'Residue collection can start', confidence: 88, stage: 'Harvest' },
+    ]
+
+    const milestones = agriLoop?.cropCalendar?.milestones?.length ? agriLoop.cropCalendar.milestones : fallback
+    const weatherRisk = stress?.diagnostic?.scores ? 'Weather factors stable' : 'Weather risk monitored'
+    const residueStatus = residue?.riskLevel ? `Residue risk: ${residue.riskLevel}` : 'Residue readiness high'
+
+    return milestones.map((item, index) => ({
+      ...item,
+      index,
+      status: item.status || [weatherRisk, residueStatus, 'Driver schedule aligned'][index % 3],
+      confidence: item.confidence || [92, 89, 85, 88][index] || 80,
+      stage: item.stage || ['Preparation', 'Sowing', 'Growth', 'Harvest'][index] || 'Monitoring',
+    }))
+  }, [agriLoop, residue, stress])
+
+  const liveUpdates = useMemo(() => [
+    { source: 'Farmer field', note: `Field conditions: ${stress?.diagnostic?.scores ? 'stress monitored' : 'stable'}`, tone: 'emerald' },
+    { source: 'Seller network', note: `Marketplace demand: ${marketplaceListings.length ? `${marketplaceListings.length} active offers` : 'waiting for buyer demand'}`, tone: 'amber' },
+    { source: 'Driver fleet', note: `Pickup queues: ${marketplaceListings.length ? '3 trips aligned' : 'route setup live'}`, tone: 'violet' },
+    { source: 'ML forecast', note: `Crop cycle confidence: ${cropTimeline[0]?.confidence || 88}% and residue plan aligned`, tone: 'sky' },
+  ], [cropTimeline, marketplaceListings.length, stress])
+
+  async function sendAgroSaathiMessage(event) {
+    event.preventDefault()
+    const trimmed = chatInput.trim()
+    if (!trimmed || chatBusy) return
+
+    const prompt = trimmed
+    setChatMessages((current) => [...current, { role: 'user', text: prompt }])
+    setChatInput('')
+    setChatBusy(true)
+
+    try {
+      const response = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: prompt,
+          locale,
+          farmId: farm?.id || null,
+          context: { stress, residue, agriLoop, cropTimeline: cropTimeline.slice(0, 4) },
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok || !data.reply) throw new Error(data.error || 'AgroSaathi could not respond right now.')
+      setChatMessages((current) => [...current, { role: 'assistant', text: data.reply }])
+    } catch (error) {
+      setChatMessages((current) => [...current, { role: 'assistant', text: error.message || 'AgroSaathi is temporarily unavailable.' }])
+    } finally {
+      setChatBusy(false)
+    }
+  }
 
   return (
     <DebugBoundary>
@@ -352,7 +496,7 @@ export default function App() {
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
               <div className="inline-flex rounded-full border border-white/80 bg-white/70 p-1 shadow-[0_8px_20px_rgba(0,0,0,0.05)] backdrop-blur-md">
-                  <button onClick={() => setTab('residue')} className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${tab === 'residue' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'}`}>
+                <button onClick={() => setTab('residue')} className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${tab === 'residue' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'}`}>
                   <Wheat className="h-4 w-4" /> {copy.residueTab}
                 </button>
                 <button onClick={() => setTab('crop')} className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${tab === 'crop' ? 'bg-[#006a42] text-white shadow-md shadow-emerald-600/20' : 'text-slate-600 hover:text-slate-900'}`}>
@@ -425,6 +569,240 @@ export default function App() {
                   <BookMachineryCard farm={farm} defaultType="Happy Seeder" triggerLabel="Request Equipment" triggerClass="pill-dark w-full" />
                 </div>
               </div>
+
+              <div className="glass-card card-3d lg:col-span-3">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Marketplace</p>
+                    <h3 className="mt-2 text-2xl font-bold text-slate-900">Buy seed inputs & raw materials</h3>
+                  </div>
+                  <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">AgriLoop buyers</span>
+                </div>
+
+                {marketplaceMessage && (
+                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{marketplaceMessage}</div>
+                )}
+
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                  {marketplaceListings.length ? marketplaceListings.map((listing) => (
+                    <div key={listing.id} className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-lg font-bold text-slate-900">{listing.name}</p>
+                          <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">{listing.category}</p>
+                        </div>
+                        <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">{listing.stockUnits} units</span>
+                      </div>
+                      <div className="mt-4 flex items-center justify-between text-sm text-slate-700">
+                        <span>Price</span>
+                        <span className="text-xl font-bold text-slate-900">₹{Number(listing.priceInr).toLocaleString('en-IN')}</span>
+                      </div>
+                      <button type="button" onClick={() => placeMarketplaceOrder(listing)} className="pill-dark mt-4 w-full">Buy now</button>
+                    </div>
+                  )) : (
+                    <div className="rounded-[22px] border border-dashed border-slate-200 bg-white/60 p-6 text-sm text-slate-500 lg:col-span-2">No active marketplace listings yet.</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="glass-card card-3d lg:col-span-3">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">ML crop cycle</p>
+                    <h3 className="mt-2 text-2xl font-bold text-slate-900">Farmer timeline and live side updates</h3>
+                  </div>
+                  <span className="badge-green">{cropTimeline[0]?.confidence || 88}% model confidence</span>
+                </div>
+
+                <div className="mt-6 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+                  <div className="rounded-[26px] border border-slate-200 bg-white/80 p-5 shadow-sm">
+                    <div className="mb-5 flex items-center justify-between">
+                      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">Crop life cycle</p>
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">ML synced</span>
+                    </div>
+
+                    <div className="space-y-4">
+                      {cropTimeline.map((step) => (
+                        <div key={`${step.label}-${step.date}`} className="relative pl-8">
+                          <div className="absolute left-0 top-1 h-4 w-4 rounded-full border-4 border-white bg-emerald-500 shadow-[0_0_0_6px_rgba(16,185,129,0.12)]" />
+                          <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-base font-bold text-slate-900">{step.label}</p>
+                                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{step.stage}</p>
+                              </div>
+                              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">{formatShortDate(step.date)}</span>
+                            </div>
+                            <p className="mt-3 text-sm leading-6 text-slate-600">{step.status}</p>
+                            <div className="mt-3 flex items-center justify-between text-xs font-medium text-slate-500">
+                              <span>Model confidence</span>
+                              <span className="text-slate-900">{step.confidence}%</span>
+                            </div>
+                            <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                              <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-sky-500" style={{ width: `${step.confidence}%` }} />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-[24px] border border-slate-200 bg-white/80 p-5 shadow-sm">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Live updates</p>
+                      <div className="mt-4 space-y-3">
+                        {liveUpdates.map((update) => (
+                          <div key={update.source} className={`rounded-2xl border p-3 ${update.tone === 'emerald' ? 'border-emerald-200 bg-emerald-50' : update.tone === 'amber' ? 'border-amber-200 bg-amber-50' : update.tone === 'violet' ? 'border-violet-200 bg-violet-50' : 'border-sky-200 bg-sky-50'}`}>
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{update.source}</p>
+                            <p className="mt-2 text-sm leading-6 text-slate-700">{update.note}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[24px] border border-slate-200 bg-slate-900 p-5 text-white shadow-sm">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-300">Next critical action</p>
+                      <p className="mt-3 text-lg font-bold">Use the next sowing window before residue burn risk spikes.</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">Apply recommended residue collection and arrange pickup with the driver route before 10:00 AM.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="glass-card card-3d lg:col-span-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-violet-600">AgroSaathi</p>
+                    <h3 className="mt-2 text-2xl font-bold text-slate-900">Custom agriculture assistant</h3>
+                  </div>
+                  <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-700">LIVE</span>
+                </div>
+
+                <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+                  <div className="rounded-[24px] border border-slate-200 bg-white/80 p-4 shadow-sm">
+                    <div className="flex min-h-[240px] flex-col gap-3 overflow-y-auto pr-1">
+                      {chatMessages.map((message, index) => (
+                        <div key={`${message.role}-${index}`} className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'assistant' ? 'bg-violet-50 text-violet-900' : 'ml-auto bg-slate-900 text-white'}`}>
+                          {message.text}
+                        </div>
+                      ))}
+                    </div>
+
+                    <form onSubmit={sendAgroSaathiMessage} className="mt-4 space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {['Suggest my next sowing step', 'What is my residue plan?', 'When should I book pickup?'].map((prompt) => (
+                          <button key={prompt} type="button" onClick={() => setChatInput(prompt)} className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-3">
+                        <input
+                          value={chatInput}
+                          onChange={(event) => setChatInput(event.target.value)}
+                          placeholder="Ask AgroSaathi about crop, residue, or logistics..."
+                          className="h-12 flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:bg-white"
+                        />
+                        <button type="submit" disabled={chatBusy} className="pill-dark disabled:opacity-70">{chatBusy ? 'Thinking...' : 'Send'}</button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <div className="rounded-[24px] border border-slate-200 bg-gradient-to-br from-violet-600 to-indigo-600 p-5 text-white shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-100">Agent controls</p>
+                    <h4 className="mt-3 text-2xl font-bold">AgroSaathi</h4>
+                    <ul className="mt-5 space-y-3 text-sm text-violet-50">
+                      <li>• Multi-language response support</li>
+                      <li>• Crop cycle planning guidance</li>
+                      <li>• Residue and logistics context</li>
+                      <li>• Custom user prompts and commands</li>
+                    </ul>
+                    <div className="mt-6 rounded-2xl border border-white/15 bg-white/10 p-4 text-sm text-violet-50">
+                      Model context: crop, stress, residue, logistics, and market demand are included in each response.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="glass-card card-3d lg:col-span-3">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">AgriLoop</p>
+                    <h3 className="mt-2 text-2xl font-bold text-slate-900">Seed to residue circular commerce</h3>
+                  </div>
+                  <span className="badge-green">{agriLoop?.incentive?.incentivePct ?? '12–22'}% incentive plan</span>
+                </div>
+
+                <div className="mt-6 grid gap-5 lg:grid-cols-[1.15fr_1fr_1fr]">
+                  <div className="rounded-[24px] border border-emerald-100 bg-emerald-50/80 p-5">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-700">Incentive engine</p>
+                    <p className="mt-4 text-4xl font-bold tracking-tight text-slate-900">₹{agriLoop?.incentive?.totalIncentive?.toLocaleString('en-IN') || '18,400'}</p>
+                    <p className="mt-2 text-sm text-slate-600">Net payable: ₹{agriLoop?.incentive?.netPayable?.toLocaleString('en-IN') || '81,600'}</p>
+                    <ul className="mt-4 space-y-2 text-sm text-slate-700">
+                      <li>• Repeat buyer: ₹{agriLoop?.incentive?.discountBreakdown?.repeatBuyerDiscount?.toLocaleString('en-IN') || '8,000'}</li>
+                      <li>• Seed buyback: ₹{agriLoop?.incentive?.discountBreakdown?.seedSellerBuyback?.toLocaleString('en-IN') || '12,000'}</li>
+                      <li>• Residue seller: ₹{agriLoop?.incentive?.discountBreakdown?.residualSellerIncentive?.toLocaleString('en-IN') || '7,000'}</li>
+                    </ul>
+                  </div>
+
+                  <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Harvest & sowing timeline</p>
+                    <p className="mt-4 text-xl font-bold text-slate-900">{agriLoop?.cropCalendar?.cropType || farm?.cropType || 'Rice'}</p>
+                    <div className="mt-4 space-y-3 text-sm text-slate-600">
+                      {agriLoop?.cropCalendar?.milestones?.slice(0, 4).map((item) => (
+                        <div key={item.label} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+                          <span>{item.label}</span>
+                          <span className="font-medium text-slate-800">{formatShortDate(item.date)}</span>
+                        </div>
+                      )) || (
+                        <>
+                          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"><span>Land prep</span><span className="font-medium text-slate-800">Jun 3</span></div>
+                          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"><span>Sowing</span><span className="font-medium text-slate-800">Jun 15</span></div>
+                          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"><span>Harvest</span><span className="font-medium text-slate-800">Oct 13</span></div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Yield & next crop</p>
+                    <p className="mt-4 text-4xl font-bold tracking-tight text-emerald-600">{agriLoop?.yieldProjection?.yieldPercent?.toFixed(1) || '92.4'}%</p>
+                    <p className="mt-2 text-sm text-slate-600">Projected yield: {agriLoop?.yieldProjection?.totalYieldTons?.toLocaleString('en-IN') || '11.9'} tons across {farm?.areaInAcres || '5'} acres</p>
+                    <p className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">{agriLoop?.cropCalendar?.nextCrop || 'After rice, sow wheat in the next suitable window to avoid residue burning and protect soil.'}</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Live driver dispatch</p>
+                      <h4 className="mt-2 text-2xl font-bold text-slate-900">Residue collection in progress</h4>
+                    </div>
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">12 active</span>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 lg:grid-cols-3">
+                    {liveDispatch.map((driver) => (
+                      <div key={driver.name} className="driver-card rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-base font-semibold text-slate-900">{driver.name}</p>
+                            <p className="text-xs text-slate-500">{driver.status}</p>
+                          </div>
+                          <span className="h-3 w-3 rounded-full bg-emerald-500 shadow-[0_0_0_5px_rgba(16,185,129,0.12)]" />
+                        </div>
+                        <div className="mt-4 rounded-2xl bg-white p-3">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">ETA</p>
+                          <p className="mt-2 text-xl font-bold text-emerald-600">{driver.eta}</p>
+                          <p className="mt-1 text-sm text-slate-600">Load: {driver.load}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -516,7 +894,7 @@ export default function App() {
                 <div className="glass-card">
                   <div className="flex items-center gap-2 text-slate-900"><Mic className="h-5 w-5 text-emerald-600" /><h3 className="text-xl font-semibold">Live Voice Advisory</h3></div>
                   <p className="mt-2 text-sm text-slate-600">Talk naturally with the Gemini Live agent in Punjabi, Hindi, Marathi, Tamil, Telugu, or English.</p>
-                  <LiveKitVoiceAgent />
+                  <LiveKitVoiceAgent farmId={farm?.id} locale={locale} context={stress || residue || { farm: farm?.cropType || 'Rice' }} />
                 </div>
 
                 <div className="glass-card">
@@ -561,6 +939,36 @@ export default function App() {
               </div>
 
               <FarmMapCard lat={farm?.latitude} lon={farm?.longitude} mode="crop" stressScore={Math.max(diag?.scores?.diurnal || 0, diag?.scores?.night || 0)} title="Crop Health & Stress Map" />
+            </div>
+          )}
+
+          {orderReceipt && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="order-receipt-title">
+              <div className="w-full max-w-lg rounded-[30px] border border-white/70 bg-white/95 p-6 shadow-[0_30px_90px_rgba(15,23,42,0.28)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">AgriLoop order economics</p>
+                    <h2 id="order-receipt-title" className="mt-2 text-2xl font-bold text-slate-900">Your circular purchase is confirmed</h2>
+                    <p className="mt-1 text-sm text-slate-500">Order {orderReceipt.orderId?.slice(0, 8) || 'pending'} · {orderReceipt.quantity} unit{orderReceipt.quantity === 1 ? '' : 's'} of {orderReceipt.listingName}</p>
+                  </div>
+                  <button type="button" onClick={() => setOrderReceipt(null)} aria-label="Close order receipt" className="rounded-full bg-slate-100 p-2 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="mt-6 space-y-3 text-sm">
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 text-slate-600"><span>Gross order value</span><span className="font-semibold text-slate-900">₹{orderReceipt.grossTotal.toLocaleString('en-IN')}</span></div>
+                  <div className="flex items-center justify-between rounded-2xl bg-emerald-50 px-4 py-3 text-emerald-800"><span>AgriLoop incentive ({orderReceipt.incentivePct}%)</span><span className="font-semibold">−₹{orderReceipt.incentiveAmount.toLocaleString('en-IN')}</span></div>
+                  <div className="flex items-center justify-between rounded-2xl bg-amber-50 px-4 py-3 text-amber-800"><span>Repeat buyer discount</span><span className="font-semibold">−₹{orderReceipt.repeatDiscount.toLocaleString('en-IN')}</span></div>
+                </div>
+
+                <div className="mt-5 flex items-end justify-between rounded-[24px] bg-slate-900 px-5 py-4 text-white">
+                  <div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Net payable</p><p className="mt-1 text-xs text-slate-300">Pickup and residue credit tracked in AgriLoop</p></div>
+                  <p className="text-3xl font-bold">₹{orderReceipt.netPayable.toLocaleString('en-IN')}</p>
+                </div>
+
+                <button type="button" onClick={() => setOrderReceipt(null)} className="pill-dark mt-5 w-full">Continue to dashboard</button>
+              </div>
             </div>
           )}
         </div>

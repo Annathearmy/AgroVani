@@ -52,20 +52,33 @@
 
 @layer components {
   .glass-card {
-    background: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(22px);
-    -webkit-backdrop-filter: blur(22px);
-    box-shadow: 0 18px 48px rgba(20, 35, 29, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, rgba(255,255,255,0.34), rgba(255,255,255,0.18));
+    border: 1px solid rgba(255,255,255,0.42);
+    backdrop-filter: blur(26px) saturate(150%);
+    -webkit-backdrop-filter: blur(26px) saturate(150%);
+    box-shadow:
+      0 24px 60px rgba(15, 23, 42, 0.12),
+      inset 0 1px 0 rgba(255,255,255,0.7),
+      inset 0 -1px 0 rgba(148,163,184,0.18);
     @apply rounded-[28px] p-6;
   }
 
+  .glass-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, rgba(255,255,255,0.28), rgba(255,255,255,0.04) 35%, rgba(255,255,255,0.12) 62%, rgba(255,255,255,0.02));
+    pointer-events: none;
+  }
+
   .glass-panel {
-    background: rgba(255, 255, 255, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.8);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
-    box-shadow: 0 24px 48px rgba(13, 27, 22, 0.09), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+    background: linear-gradient(135deg, rgba(255,255,255,0.28), rgba(255,255,255,0.12));
+    border: 1px solid rgba(255,255,255,0.35);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    box-shadow: 0 28px 60px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255,255,255,0.7);
   }
 
   .glass-btn {
@@ -85,11 +98,11 @@
   }
 
   .card-3d {
-    transition: transform 0.35s ease, box-shadow 0.35s ease;
+    transition: transform 0.35s ease, box-shadow 0.35s ease, backdrop-filter 0.35s ease;
   }
   .card-3d:hover {
-    transform: translateY(-6px);
-    box-shadow: 0 28px 55px rgba(15, 23, 42, 0.12);
+    transform: translateY(-6px) scale(1.01);
+    box-shadow: 0 28px 55px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255,255,255,0.8);
   }
 
   .bg-image {
@@ -109,11 +122,45 @@
   .language-switcher { @apply inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/10 p-1.5 shadow-lg backdrop-blur-xl; }
   .language-option { @apply rounded-full px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:bg-white/15; }
   .language-option-active { @apply bg-white text-slate-900 shadow-sm; }
+
+  .market-shell { animation: softFloat 12s ease-in-out infinite; }
+  .driver-card { animation: softFloat 9s ease-in-out infinite; }
+  .route-panel { box-shadow: inset 0 1px 0 rgba(255,255,255,0.7); }
+  .route-line {
+    position: relative;
+    height: 18px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(16,185,129,0.24), rgba(16,185,129,0.8), rgba(245,158,11,0.7));
+    overflow: hidden;
+  }
+  .route-line::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.8) 50%, transparent 100%);
+    transform: translateX(-100%);
+    animation: shimmer 2.8s ease-in-out infinite;
+  }
+  .dot-green { box-shadow: 0 0 0 8px rgba(16,185,129,0.12); }
+  .dot-amber { box-shadow: 0 0 0 8px rgba(245,158,11,0.12); }
+  .ml-slot {
+    background-image: linear-gradient(135deg, rgba(15,23,42,0.96), rgba(2,6,23,0.96));
+  }
 }
 
 .leaflet-container {
   font-family: Inter, sans-serif;
   border-radius: 1rem;
+}
+
+@keyframes softFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 ::-webkit-scrollbar {
