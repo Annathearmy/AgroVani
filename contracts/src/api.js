@@ -50,6 +50,12 @@ export const orderCreateSchema = z.object({
   totalInr: finiteNumber.positive().optional(),
 })
 
+export const residuePlanSchema = z.object({
+  farmId: z.string().trim().min(1),
+  requestedDate: z.string().trim().optional(),
+  notes: z.string().trim().max(2000).optional(),
+})
+
 export function validationError(result) {
   return result.error.issues.map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`).join('; ')
 }

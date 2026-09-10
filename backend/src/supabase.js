@@ -58,6 +58,11 @@ const TABLE_COLUMNS = {
   residue_profiles: {
     farmId: 'farm_id', residueType: 'residue_type', qualityGrade: 'quality_grade', quantityQuintals: 'quantity_quintals', moisturePercent: 'moisture_percent', pickupReadyDate: 'pickup_ready_date', updatedAt: 'updated_at',
   },
+  residue_operations: {
+    farmId: 'farm_id', residueType: 'residue_type', quantityQuintals: 'quantity_quintals', qualityGrade: 'quality_grade',
+    pickupReadyDate: 'pickup_ready_date', dispatchWindow: 'dispatch_window', buyerSignal: 'buyer_signal', nextActions: 'next_actions',
+    safetyNote: 'safety_note', createdAt: 'created_at', updatedAt: 'updated_at',
+  },
 }
 
 function toDatabaseRow(table, row) {

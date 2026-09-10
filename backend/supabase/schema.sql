@@ -208,6 +208,22 @@ create table if not exists public.residue_profiles (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.residue_operations (
+  id uuid primary key default gen_random_uuid(),
+  farm_id uuid not null references public.farms(id) on delete cascade,
+  residue_type text not null,
+  quantity_quintals numeric not null check (quantity_quintals >= 0),
+  quality_grade text not null default 'Standard',
+  pickup_ready_date date,
+  dispatch_window text default '',
+  buyer_signal text default '',
+  next_actions jsonb not null default '[]'::jsonb,
+  safety_note text default '',
+  status text not null default 'planned',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.farms enable row level security;
 alter table public.machinery enable row level security;
 alter table public.district_metrics enable row level security;
@@ -223,3 +239,4 @@ alter table public.earnings enable row level security;
 alter table public.dispatch enable row level security;
 alter table public.notifications enable row level security;
 alter table public.residue_profiles enable row level security;
+alter table public.residue_operations enable row level security;

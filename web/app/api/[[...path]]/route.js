@@ -15,6 +15,8 @@ import { buildFarmReportPdf, createWhatsAppText } from '@/backend/services/repor
 import { fetchIndiaWeather } from '@/backend/adapters/cloudNextWeather'
 import { plans } from '@/lib/data/plans'
 import { farmCreateSchema, listingCreateSchema, orderCreateSchema, validationError } from '@/contracts/api'
+import { buildResidueOperations, generateResiduePlan } from '@/backend/services/residueService'
+import { residuePlanSchema } from '@/contracts/api'
 
 function handleCORS(response) {
   response.headers.set('Access-Control-Allow-Origin', process.env.CORS_ORIGINS || process.env.NEXT_PUBLIC_BASE_URL || '*')
@@ -950,6 +952,18 @@ async function handleRoute(request, { params }) {
       const existing = await db.collection('residue_profiles').findOne({ farmId: profile.farmId })
       if (existing) { profile.id = existing.id; await db.collection('residue_profiles').updateOne({ id: existing.id }, { $set: profile }) } else await db.collection('residue_profiles').insertOne(profile)
       return ok(profile)
+    }
+
+    if (route === '/residue/operations' && method === 'GET') {
+      const result = await buildResidueOperations({ db, farmId: searchParams.get('farmId') })
+      return result.error ? ok({ error: result.error }, result.status) : ok(result)
+    }
+
+    if (route === '/residue/operations/plan' && method === 'POST') {
+      const parsedBody = residuePlanSchema.safeParse(await request.json())
+      if (!parsedBody.success) return ok({ error: validationError(parsedBody) }, 400)
+      const result = await generateResiduePlan({ db, input: parsedBody.data })
+      return result.error ? ok({ error: result.error }, result.status) : ok(result, 201)
     }
 
     if (route === '/machinery' && method === 'GET') {
