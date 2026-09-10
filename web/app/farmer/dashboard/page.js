@@ -580,7 +580,7 @@ export default function App() {
             <Link href="/" className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
               <ArrowLeft className="h-4 w-4" /> AgroVani
             </Link>
-            <div className="flex flex-wrap items-center gap-2"><Link href="/farmer/weather" className="glass-btn">Live weather</Link><Link href="/farmer/operations" className="glass-btn">Operations</Link><Link href="/plans" className="glass-btn">Our Plans</Link><LanguageSwitcher /><InstallAppButton compact /></div>
+            <div className="flex flex-wrap items-center gap-2"><Link href="/farmer/yield" className="glass-btn">Yield pulse</Link><Link href="/farmer/weather" className="glass-btn">Live weather</Link><Link href="/farmer/operations" className="glass-btn">Operations</Link><Link href="/plans" className="glass-btn">Our Plans</Link><LanguageSwitcher /><InstallAppButton compact /></div>
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
               <div className="inline-flex rounded-full border border-white/80 bg-white/70 p-1 shadow-[0_8px_20px_rgba(0,0,0,0.05)] backdrop-blur-md">
@@ -627,6 +627,7 @@ export default function App() {
                 <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">{copy.buyerDemand}</p>
                 <p className="mt-4 text-5xl font-bold tracking-tight text-emerald-600">{residue?.buyerDemand || '—'}</p>
                 <p className="mt-3 flex items-center gap-1 text-sm text-slate-600"><IndianRupee className="h-4 w-4" /> {residue?.totalValueINR?.toLocaleString('en-IN') ?? '—'} potential value</p>
+                <Link href="/farmer/yield" className="mt-4 flex w-full items-center justify-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 transition hover:-translate-y-0.5 hover:bg-emerald-100"><TrendingUp className="h-4 w-4" /> Check yield percentage</Link>
                 <BookMachineryCard farm={farm} defaultType="Baler" triggerLabel="Sell Stubble" triggerClass="pill-dark mt-4 w-full" />
               </div>
 
