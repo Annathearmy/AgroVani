@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import { Wind, Droplet, Leaf, ArrowRight, Sparkles } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import InstallAppButton from '@/components/InstallAppButton'
-const SpatialFieldScene = dynamic(() => import('@/components/farmer/SpatialFieldScene'), { ssr: false })
+const SpatialFieldScene = dynamic(() => import('@/components/farmer/SpatialFieldSceneClient'), { ssr: false })
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 const impactCards = [
@@ -158,7 +158,7 @@ export default function App() {
             <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-600">AgriLoop</p>
-                <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">Uber-style logistics for residue-first farming</h2>
+                <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">Live Crop Position Tracking for residue-first farming</h2>
               </div>
               <span className="badge-green">12–22% embedded incentives</span>
             </div>

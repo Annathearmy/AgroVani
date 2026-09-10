@@ -28,6 +28,35 @@ export default function DriverRoutePage() {
     return () => window.clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    const websocketUrl = process.env.NEXT_PUBLIC_LOCATION_WS_URL
+    if (!websocketUrl) return undefined
+
+    const socket = new WebSocket(websocketUrl)
+    let latitude = 30.3398
+    let longitude = 76.3869
+    const publish = (nextLatitude, nextLongitude) => {
+      latitude = nextLatitude
+      longitude = nextLongitude
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'location_update', id: 'driver-demo', latitude, longitude, status: 'active' }))
+      }
+    }
+
+    socket.onopen = () => {
+      if (!navigator.geolocation) return
+      navigator.geolocation.watchPosition(
+        (position) => publish(position.coords.latitude, position.coords.longitude),
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 },
+      )
+    }
+
+    return () => {
+      socket.close()
+    }
+  }, [])
+
   const liveCheckpoints = checkpoints.map((stop, index) => ({
     ...stop,
     status: progress > 78 && index === 1 ? 'Complete' : index === 1 ? 'Live' : stop.status,

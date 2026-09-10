@@ -6,6 +6,11 @@ import 'leaflet/dist/leaflet.css'
 
 const { BaseLayer } = LayersControl
 
+const streetTileUrl = process.env.NEXT_PUBLIC_MAP_TILE_URL || 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+const streetAttribution = process.env.NEXT_PUBLIC_MAP_TILE_ATTRIBUTION || '&copy; OpenStreetMap contributors'
+const satelliteTileUrl = process.env.NEXT_PUBLIC_MAP_SATELLITE_TILE_URL || 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+const satelliteAttribution = process.env.NEXT_PUBLIC_MAP_SATELLITE_ATTRIBUTION || 'Tiles &copy; Esri'
+
 function pin(color) {
   return L.divIcon({
     className: 'fv-pin',
@@ -60,10 +65,10 @@ export default function LeafletMap({ lat, lon, liveLocation, mode = 'residue', s
     <MapContainer center={center} zoom={13} scrollWheelZoom={true} style={{ height: '100%', width: '100%', minHeight: 360 }}>
       <LayersControl position="topright">
         <BaseLayer checked name="Streets">
-          <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <TileLayer attribution={streetAttribution} url={streetTileUrl} />
         </BaseLayer>
         <BaseLayer name="Satellite">
-          <TileLayer attribution='Tiles &copy; Esri' url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
+          <TileLayer attribution={satelliteAttribution} url={satelliteTileUrl} />
         </BaseLayer>
       </LayersControl>
 
@@ -81,9 +86,9 @@ export default function LeafletMap({ lat, lon, liveLocation, mode = 'residue', s
         <Popup>Your farm</Popup>
       </Marker>
 
-      <Marker position={liveCenter} icon={ICONS.green}>
-        <Popup>Live driver location · {liveLocation?.status || 'active'}</Popup>
-      </Marker>
+      {liveLocation?.status === 'active' && <Marker position={liveCenter} icon={ICONS.green}>
+        <Popup>Live driver location · active</Popup>
+      </Marker>}
 
       {markers.map((m, i) => (
         <Marker key={i} position={m.pos} icon={ICONS[m.icon]}>

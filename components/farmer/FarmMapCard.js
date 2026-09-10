@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 import { MapPin, Radio } from 'lucide-react'
 import { useLiveLocation } from '@/hooks/useLiveLocation'
 
-const SpatialFieldScene = dynamic(() => import('./SpatialFieldScene'), { ssr: false })
+const SpatialFieldScene = dynamic(() => import('./SpatialFieldSceneClient'), { ssr: false })
 
 const LeafletMap = dynamic(() => import('./LeafletMap'), {
   ssr: false,
@@ -25,7 +25,7 @@ export default function FarmMapCard({ lat, lon, mode = 'residue', stressScore = 
         <h3 className="text-lg font-semibold text-slate-900">{title || 'Farm Map'}</h3>
         <span className="ml-auto flex items-center gap-2 rounded-full bg-slate-900/5 px-3 py-1 text-xs font-medium text-slate-500">
           <Radio className={`h-3 w-3 ${connection === 'connected' ? 'text-emerald-500' : 'text-amber-500'}`} />
-          {connection === 'connected' ? 'Live GPS' : 'Demo GPS'}
+          {connection === 'connected' ? 'Live GPS' : 'GPS unavailable'}
         </span>
       </div>
       <div className="overflow-hidden rounded-xl">

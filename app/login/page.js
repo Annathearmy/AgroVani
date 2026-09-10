@@ -27,6 +27,15 @@ const roles = [
     badge: 'Residue marketplace',
   },
   {
+    key: 'buyer',
+    label: 'Buyer',
+    accent: 'sky',
+    username: 'buyer@agrovani.in',
+    password: 'AgroVani@123',
+    redirect: '/buyer/dashboard',
+    badge: 'Mandi & marketplace access',
+  },
+  {
     key: 'admin',
     label: 'Admin',
     accent: 'blue',
@@ -74,6 +83,13 @@ const roleStyles = {
     text: 'text-violet-700',
     chip: 'bg-violet-50 text-violet-700',
     button: 'bg-violet-600 hover:bg-violet-700',
+  },
+  buyer: {
+    ring: 'ring-sky-200',
+    bg: 'from-sky-500 to-cyan-500',
+    text: 'text-sky-700',
+    chip: 'bg-sky-50 text-sky-700',
+    button: 'bg-sky-600 hover:bg-sky-700',
   },
 }
 

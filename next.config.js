@@ -1,5 +1,7 @@
 const nextConfig = {
-  output: 'standalone',
+  output: process.env.GITHUB_PAGES === 'true' ? 'export' : 'standalone',
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH || '',
+  assetPrefix: process.env.NEXT_PUBLIC_BASE_PATH ? `${process.env.NEXT_PUBLIC_BASE_PATH}/` : undefined,
   reactStrictMode: false,
   env: {
     NEXT_PUBLIC_BASE_URL:

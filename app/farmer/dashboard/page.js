@@ -10,6 +10,8 @@ import LanguageSwitcher from '@/components/LanguageSwitcher'
 import InstallAppButton from '@/components/InstallAppButton'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 import { getRecommendationCopy } from '@/lib/i18n/recommendation'
+import { apiUrl } from '@/lib/api'
+import SupportDock from '@/components/SupportDock'
 import {
   Wheat, FlaskConical, ArrowLeft, TrendingUp, Sun, Moon, Snowflake,
   Droplets, Sparkles, Clock, Mic, Camera, IndianRupee, AlertTriangle, Loader2, X,
@@ -135,7 +137,7 @@ export default function App() {
     setRecommendationLoading(true)
     setRecommendationError('')
     try {
-      const response = await fetch('/api/recommendations', {
+      const response = await fetch(apiUrl('/api/recommendations'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,7 +214,7 @@ export default function App() {
         const reader = new FileReader()
         reader.onload = async () => {
           try {
-            const response = await fetch('/api/assistant/audio', {
+            const response = await fetch(apiUrl('/api/assistant/audio'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -278,7 +280,7 @@ export default function App() {
       const reader = new FileReader()
       reader.onload = async () => {
         try {
-          const response = await fetch('/api/crop-diagnose', {
+            const response = await fetch(apiUrl('/api/crop-diagnose'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -347,7 +349,7 @@ export default function App() {
 
     async function loadFarms() {
       try {
-        let res = await fetch('/api/farms')
+        let res = await fetch(apiUrl('/api/farms'))
         let list = await res.json()
         if (!res.ok || !Array.isArray(list)) throw new Error(list.error || 'Unable to load farms')
         const farmsArr = Array.isArray(list) ? list : []
@@ -380,7 +382,7 @@ export default function App() {
       setUsedProducts([])
     }
 
-    fetch(`/api/products?crop=${encodeURIComponent(f.cropType || 'Rice')}`)
+    fetch(apiUrl(`/api/products?crop=${encodeURIComponent(f.cropType || 'Rice')}`))
       .then(async (response) => {
         const data = await response.json()
         if (!response.ok || !Array.isArray(data.products)) throw new Error(data.error || 'Product catalog unavailable')
@@ -391,7 +393,7 @@ export default function App() {
         setAvailableProducts([])
       })
 
-    fetch(`/api/residue?farmId=${f.id}`)
+    fetch(apiUrl(`/api/residue?farmId=${f.id}`))
       .then(async (r) => {
         const data = await r.json()
         if (!r.ok || data.error) throw new Error(data.error || 'Residue data unavailable')
@@ -400,7 +402,7 @@ export default function App() {
       })
       .then(async (data) => {
         const orderValue = Number(data?.totalValueINR || 100000)
-        const response = await fetch(`/api/agri-loop?farmId=${f.id}&orderValue=${encodeURIComponent(orderValue)}`)
+        const response = await fetch(apiUrl(`/api/agri-loop?farmId=${f.id}&orderValue=${encodeURIComponent(orderValue)}`))
         const agriData = await response.json()
         if (!response.ok || agriData.error) throw new Error(agriData.error || 'Agri loop data unavailable')
         setAgriLoop(agriData)
@@ -408,7 +410,7 @@ export default function App() {
       })
       .catch((error) => console.error('Agri loop loading failed:', error))
 
-    fetch(`/api/machinery?district=${encodeURIComponent(f.district || '')}`)
+    fetch(apiUrl(`/api/machinery?district=${encodeURIComponent(f.district || '')}`))
       .then(async (r) => {
         const data = await r.json()
         if (!r.ok || !Array.isArray(data)) throw new Error(data.error || 'Machinery data unavailable')
@@ -420,7 +422,7 @@ export default function App() {
         setMachinery([])
       })
 
-    fetch('/api/marketplace/listings')
+    fetch(apiUrl('/api/marketplace/listings'))
       .then(async (r) => {
         const data = await r.json()
         if (!r.ok || !Array.isArray(data)) throw new Error(data.error || 'Marketplace listings unavailable')
@@ -428,7 +430,7 @@ export default function App() {
       })
       .catch((error) => console.error('Marketplace loading failed:', error))
 
-    fetch(`/api/stress?farmId=${f.id}`)
+    fetch(apiUrl(`/api/stress?farmId=${f.id}`))
       .then(async (r) => {
         const data = await r.json()
         if (!r.ok || data.error) throw new Error(data.error || 'Stress data unavailable')
@@ -451,7 +453,7 @@ export default function App() {
     }
 
     try {
-      const response = await fetch('/api/marketplace/orders', {
+      const response = await fetch(apiUrl('/api/marketplace/orders'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -510,7 +512,7 @@ export default function App() {
     { source: 'Farmer field', note: `Field conditions: ${stress?.diagnostic?.scores ? 'stress monitored' : 'stable'}`, tone: 'emerald' },
     { source: 'Seller network', note: `Marketplace demand: ${marketplaceListings.length ? `${marketplaceListings.length} active offers` : 'waiting for buyer demand'}`, tone: 'amber' },
     { source: 'Driver fleet', note: `Pickup queues: ${marketplaceListings.length ? '3 trips aligned' : 'route setup live'}`, tone: 'violet' },
-    { source: 'ML forecast', note: `Crop cycle confidence: ${cropTimeline[0]?.confidence || 88}% and residue plan aligned`, tone: 'sky' },
+    { source: 'Weather signal', note: `Crop cycle confidence: ${cropTimeline[0]?.confidence || 88}% based on live weather and field context`, tone: 'sky' },
   ], [cropTimeline, marketplaceListings.length, stress])
 
   const filteredProducts = useMemo(() => {
@@ -529,7 +531,7 @@ export default function App() {
     setChatBusy(true)
 
     try {
-      const response = await fetch('/api/assistant', {
+      const response = await fetch(apiUrl('/api/assistant'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -557,14 +559,11 @@ export default function App() {
             <Link href="/" className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
               <ArrowLeft className="h-4 w-4" /> AgroVani
             </Link>
-            <LanguageSwitcher />
-            <InstallAppButton compact />
+            <div className="flex flex-wrap items-center gap-2"><Link href="/farmer/weather" className="glass-btn">Live weather</Link><Link href="/farmer/operations" className="glass-btn">Operations</Link><Link href="/plans" className="glass-btn">Our Plans</Link><LanguageSwitcher /><InstallAppButton compact /></div>
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
               <div className="inline-flex rounded-full border border-white/80 bg-white/70 p-1 shadow-[0_8px_20px_rgba(0,0,0,0.05)] backdrop-blur-md">
-                <button onClick={() => setTab('residue')} className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${tab === 'residue' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'}`}>
-                  <Wheat className="h-4 w-4" /> {copy.residueTab}
-                </button>
+                <Link href="/farmer/operations" className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-900"><Wheat className="h-4 w-4" /> Operations</Link>
                 <button onClick={() => setTab('crop')} className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${tab === 'crop' ? 'bg-[#006a42] text-white shadow-md shadow-emerald-600/20' : 'text-slate-600 hover:text-slate-900'}`}>
                   <FlaskConical className="h-4 w-4" /> {copy.cropTab}
                 </button>
@@ -674,7 +673,7 @@ export default function App() {
               <div className="glass-card card-3d lg:col-span-3">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">ML crop cycle</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">Crop cycle planner</p>
                     <h3 className="mt-2 text-2xl font-bold text-slate-900">Farmer timeline and live side updates</h3>
                   </div>
                   <span className="badge-green">{cropTimeline[0]?.confidence || 88}% model confidence</span>
@@ -684,7 +683,7 @@ export default function App() {
                   <div className="rounded-[26px] border border-slate-200 bg-white/80 p-5 shadow-sm">
                     <div className="mb-5 flex items-center justify-between">
                       <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">Crop life cycle</p>
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">ML synced</span>
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">Field guidance synced</span>
                     </div>
 
                     <div className="space-y-4">
@@ -1046,7 +1045,7 @@ export default function App() {
                 </div>
               </div>
 
-              <FarmMapCard lat={farm?.latitude} lon={farm?.longitude} mode="crop" stressScore={Math.max(diag?.scores?.diurnal || 0, diag?.scores?.night || 0)} title="Crop Health & Stress Map" />
+              <FarmMapCard lat={farm?.latitude} lon={farm?.longitude} mode="crop" stressScore={Math.max(diag?.scores?.diurnal || 0, diag?.scores?.night || 0)} title="Live Crop Position Tracking" />
             </div>
           )}
 
@@ -1081,6 +1080,7 @@ export default function App() {
           )}
         </div>
       </main>
+      <SupportDock role="farmer" locale={locale} context={{ farm: farm?.cropType, stress, residue }} />
     </DebugBoundary>
   )
 }

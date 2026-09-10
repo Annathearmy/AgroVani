@@ -10,16 +10,18 @@ import { calculateIncentivePlan, buildCropCalendar, calculateYieldProjection } f
 import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/ai/gemini'
 import { createSupabaseDb, getSupabaseServerClient } from '@/lib/supabase/server'
 
-let client
-let db
-let memoryDb = null
-let supabaseDb = null
+const runtimeStore = globalThis
+let client = runtimeStore.__agrovaniMongoClient || null
+let db = runtimeStore.__agrovaniMongoDb || null
+let memoryDb = runtimeStore.__agrovaniMemoryDb || null
+let supabaseDb = runtimeStore.__agrovaniSupabaseDb || null
 
 function createMemoryCollection(initialRows = []) {
   const rows = [...initialRows]
 
   const makeQueryMatcher = (query = {}) => (row) => Object.entries(query).every(([key, value]) => {
     if (value === undefined) return true
+    if (value && typeof value === 'object' && Array.isArray(value.$in)) return value.$in.includes(row[key])
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       return Object.entries(value).every(([nestedKey, nestedValue]) => {
         const source = row[key]
@@ -97,6 +99,10 @@ function createMemoryDb() {
     marketplace_listings: createMemoryCollection(),
     marketplace_orders: createMemoryCollection(),
     admin_reviews: createMemoryCollection(),
+    tasks: createMemoryCollection(),
+    messages: createMemoryCollection(),
+    earnings: createMemoryCollection(),
+    dispatch: createMemoryCollection(),
   }
 
   return {
@@ -112,6 +118,7 @@ async function connectToMongo() {
 
   if (!process.env.MONGO_URL || !process.env.DB_NAME) {
     memoryDb = createMemoryDb()
+    runtimeStore.__agrovaniMemoryDb = memoryDb
     return memoryDb
   }
 
@@ -127,6 +134,8 @@ async function connectToMongo() {
     console.warn('MongoDB unavailable, falling back to in-memory store for Vercel deployment:', error.message)
     client = null
     memoryDb = createMemoryDb()
+    runtimeStore.__agrovaniMongoClient = null
+    runtimeStore.__agrovaniMemoryDb = memoryDb
     return memoryDb
   }
 }
@@ -136,6 +145,7 @@ function connectToDatabase() {
   const supabase = getSupabaseServerClient()
   if (supabase) {
     supabaseDb = createSupabaseDb(supabase)
+    runtimeStore.__agrovaniSupabaseDb = supabaseDb
     return supabaseDb
   }
   return connectToMongo()
@@ -283,8 +293,20 @@ async function seedDb(db) {
   return { seeded: seededFarms, referenceDataReady: true }
 }
 
+function localAssistantReply(body) {
+  const message = String(body.message || '').toLowerCase()
+  const reply = message.includes('weather')
+    ? 'Live weather is available from the farm weather page. Check rainfall, temperature, soil moisture, and the verification status before scheduling field work.'
+    : message.includes('mandi') || message.includes('price')
+      ? 'Mandi prices will appear when the government data provider is configured. Until then, AgroVani will not invent a market price.'
+      : message.includes('dispatch') || message.includes('driver')
+        ? 'Dispatch requests are shared through the driver network. Add a task or booking with a pickup location so a third-party driver can be assigned.'
+        : 'I can help turn a crop recommendation into a task, explain a field action, or coordinate a buyer, seller, and driver. Tell me what you need next.'
+  return ok({ reply, source: 'local_fallback' })
+}
+
 async function createAssistantReply(db, body) {
-  if (!process.env.GEMINI_API_KEY) return ok({ error: 'Gemini voice assistant is not configured' }, 503)
+  if (!process.env.GEMINI_API_KEY) return localAssistantReply(body)
 
   const farm = body.farmId ? await db.collection('farms').findOne({ id: body.farmId }) : null
   if (body.farmId && !farm) return ok({ error: 'Farm not found' }, 404)
@@ -317,7 +339,7 @@ async function createAssistantReply(db, body) {
   if (!response.ok) {
     console.error('Gemini assistant error:', data)
     if (response.status === 401 || response.status === 403) {
-      return ok({ error: 'Voice assistant authentication failed. Add a valid GEMINI_API_KEY in .env and restart the server.' }, 502)
+      return localAssistantReply(body)
     }
     return ok({ error: 'Unable to get an assistant response. Please try again.' }, 502)
   }
@@ -489,6 +511,86 @@ async function handleRoute(request, { params }) {
 
     if ((route === '/' || route === '/root') && method === 'GET') {
       return ok({ message: 'AgroVani API', crops: CROP_LIST })
+    }
+
+    if (route === '/mandi' && method === 'GET') {
+      const endpoint = process.env.GOVT_MANDI_API_URL
+      const apiKey = process.env.GOVT_MANDI_API_KEY
+      if (!endpoint || !apiKey) return ok({ source: 'local_fallback', records: [
+        { commodity: 'Rice', market: 'Configure government feed', minPrice: '—', modalPrice: '—', maxPrice: '—' },
+      ], message: 'Government mandi API is not configured. Prices are intentionally withheld.' })
+      const response = await fetch(`${endpoint}${endpoint.includes('?') ? '&' : '?'}api-key=${encodeURIComponent(apiKey)}&format=json&limit=50`, { cache: 'no-store', signal: AbortSignal.timeout(8000) })
+      const data = await response.json()
+      if (!response.ok) return ok({ source: 'government', records: [], error: 'Government mandi API request failed.' }, 502)
+      const records = (data.records || []).map((item) => ({
+        commodity: item.commodity || item.Commodity || 'Unknown',
+        market: item.market || item.Market || item.market_name || 'Unknown',
+        minPrice: item.min_price ?? item.Min_Price ?? item.min_price_inr ?? '—',
+        modalPrice: item.modal_price ?? item.Modal_Price ?? item.modal_price_inr ?? '—',
+        maxPrice: item.max_price ?? item.Max_Price ?? item.max_price_inr ?? '—',
+      }))
+      return ok({ source: 'government', records })
+    }
+
+    if (route === '/tasks' && method === 'GET') {
+      const ownerId = searchParams.get('ownerId')
+      const routeDb = await connectToDatabase()
+      const tasks = await routeDb.collection('tasks').find(ownerId ? { ownerId } : {}).toArray()
+      return ok(tasks)
+    }
+
+    if (route === '/tasks' && method === 'POST') {
+      const body = await request.json()
+      const task = { id: uuidv4(), ownerId: body.ownerId || 'farmer-local', title: body.title || 'Field check', instructions: body.instructions || '', dueDate: body.dueDate || new Date().toISOString().slice(0, 10), status: 'open', source: body.source || 'local_recommendation', createdAt: new Date() }
+      const routeDb = await connectToDatabase()
+      await routeDb.collection('tasks').insertOne(task)
+      return ok(task, 201)
+    }
+
+    if (route === '/tasks' && method === 'PATCH') {
+      const body = await request.json()
+      const db = await connectToDatabase()
+      const task = await db.collection('tasks').findOne({ id: body.id })
+      if (!task) return ok({ error: 'Task not found' }, 404)
+      task.status = body.status === 'done' ? 'done' : 'open'
+      await db.collection('tasks').updateOne({ id: task.id }, { $set: task })
+      return ok(task)
+    }
+
+    if (route === '/messages' && method === 'GET') {
+      const routeDb = await connectToDatabase()
+      const messages = await routeDb.collection('messages').find({}).toArray()
+      return ok(messages)
+    }
+
+    if (route === '/messages' && method === 'POST') {
+      const body = await request.json()
+      const message = { id: uuidv4(), senderId: body.senderId || 'local-user', recipientId: body.recipientId || 'network', text: body.text || '', sourceLanguage: body.sourceLanguage || 'en', targetLanguage: body.targetLanguage || body.sourceLanguage || 'en', translatedText: body.text || '', createdAt: new Date() }
+      const routeDb = await connectToDatabase()
+      await routeDb.collection('messages').insertOne(message)
+      return ok(message, 201)
+    }
+
+    if (route === '/earnings' && method === 'GET') {
+      const ownerId = searchParams.get('ownerId')
+      const routeDb = await connectToDatabase()
+      const earnings = await routeDb.collection('earnings').find(ownerId ? { ownerId } : {}).toArray()
+      return ok({ source: 'local_fallback', earnings, totalInr: earnings.reduce((sum, item) => sum + Number(item.amountInr || 0), 0) })
+    }
+
+    if (route === '/dispatch' && method === 'GET') {
+      const routeDb = await connectToDatabase()
+      const dispatch = await routeDb.collection('dispatch').find({}).toArray()
+      return ok({ source: 'local_fallback', dispatch })
+    }
+
+    if (route === '/translate' && method === 'POST') {
+      const body = await request.json()
+      return ok({ source: process.env.TRANSLATION_API_URL ? 'provider' : 'local_fallback', sourceLanguage: body.sourceLanguage || 'auto', targetLanguage: body.targetLanguage || 'en', originalText: body.text || '', translatedText: body.text || '', message: process.env.TRANSLATION_API_URL ? 'Translation provider adapter is ready for implementation.' : 'Translation provider is not configured; original text is preserved.' })
+    }
+
+    if (route === '/satellite' && method === 'GET') {
+      return ok({ source: process.env.ISRO_SATELLITE_API_URL ? 'provider' : 'local_fallback', status: process.env.ISRO_SATELLITE_API_URL ? 'configured' : 'not_configured', message: 'Satellite adapter is ready for an authorized ISRO/Bhuvan endpoint; no synthetic satellite reading is returned.' })
     }
 
     if (route === '/seed' && method === 'POST') {
@@ -739,7 +841,11 @@ async function handleRoute(request, { params }) {
         sprayWindowStart: spray.windows?.[0]?.startTime || null,
         createdAt: new Date(),
       }
-      await db.collection('stress_diagnostic_logs').insertOne(log)
+      try {
+        await db.collection('stress_diagnostic_logs').insertOne(log)
+      } catch (error) {
+        console.warn('Stress diagnostic logging skipped:', error.message)
+      }
 
       return ok({
         weather,

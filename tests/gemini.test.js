@@ -38,7 +38,7 @@ test('mapSymptomsToRecommendation chooses an agronomic product based on symptom 
   assert.match(recommendation.category, /fungicide|disease/i)
 })
 
-test('Supabase server client falls back to anon credentials when service role is absent', () => {
+test('Supabase server client stays disabled when service role is absent', () => {
   const previousUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const previousAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   const previousService = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -49,7 +49,7 @@ test('Supabase server client falls back to anon credentials when service role is
 
   try {
     const client = getSupabaseServerClient()
-    assert.ok(client)
+    assert.equal(client, null)
   } finally {
     if (previousUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL
     else process.env.NEXT_PUBLIC_SUPABASE_URL = previousUrl

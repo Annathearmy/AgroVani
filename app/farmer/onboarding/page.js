@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Search, Save, ArrowLeft, ArrowRight, CheckCircle2, MapPin, Sprout } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
+import { apiUrl } from '@/lib/api'
 
 const CROPS = ['Rice', 'Wheat', 'Corn', 'Cotton', 'Soybean']
 
@@ -45,7 +46,7 @@ export default function App() {
     if (!form.village) return
     setGeoLoading(true)
     try {
-      const res = await fetch(`/api/geocode?query=${encodeURIComponent(form.village)}`)
+      const res = await fetch(apiUrl(`/api/geocode?query=${encodeURIComponent(form.village)}`))
       const data = await res.json()
       setGeoResults(data.results || [])
     } finally {
@@ -69,7 +70,7 @@ export default function App() {
     setSubmitting(true)
     setSubmitError('')
     try {
-      const res = await fetch('/api/farms', {
+      const res = await fetch(apiUrl('/api/farms'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),

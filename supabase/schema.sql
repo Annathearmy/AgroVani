@@ -95,6 +95,50 @@ create table if not exists public.admin_reviews (
   reviewed_at timestamptz
 );
 
+create table if not exists public.tasks (
+  id uuid primary key default gen_random_uuid(),
+  owner_id text not null,
+  title text not null,
+  instructions text default '',
+  due_date date not null default current_date,
+  status text not null default 'open',
+  source text not null default 'recommendation',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_id text not null,
+  recipient_id text not null,
+  text text not null,
+  source_language text not null default 'en',
+  target_language text not null default 'en',
+  translated_text text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.earnings (
+  id uuid primary key default gen_random_uuid(),
+  owner_id text not null,
+  role text not null,
+  source text not null,
+  amount_inr numeric not null default 0,
+  status text not null default 'pending',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.dispatch (
+  id uuid primary key default gen_random_uuid(),
+  driver_id text not null,
+  farmer_id text,
+  buyer_id text,
+  pickup_location jsonb,
+  drop_location jsonb,
+  status text not null default 'assigned',
+  eta_minutes integer,
+  created_at timestamptz not null default now()
+);
+
 alter table public.farms enable row level security;
 alter table public.machinery enable row level security;
 alter table public.district_metrics enable row level security;
@@ -103,3 +147,7 @@ alter table public.stress_diagnostic_logs enable row level security;
 alter table public.marketplace_listings enable row level security;
 alter table public.marketplace_orders enable row level security;
 alter table public.admin_reviews enable row level security;
+alter table public.tasks enable row level security;
+alter table public.messages enable row level security;
+alter table public.earnings enable row level security;
+alter table public.dispatch enable row level security;

@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 export function useLiveLocation({ id = 'driver-demo', latitude, longitude, enabled = true }) {
-  const [location, setLocation] = useState({ latitude, longitude, status: 'simulated' })
-  const [connection, setConnection] = useState('simulated')
+  const [location, setLocation] = useState({ latitude, longitude, status: 'unavailable' })
+  const [connection, setConnection] = useState('unavailable')
   const socketRef = useRef(null)
 
   useEffect(() => {
@@ -14,26 +14,15 @@ export function useLiveLocation({ id = 'driver-demo', latitude, longitude, enabl
   useEffect(() => {
     if (!enabled || typeof window === 'undefined') return undefined
     const websocketUrl = process.env.NEXT_PUBLIC_LOCATION_WS_URL
-    let simulationTimer
-
     if (!websocketUrl) {
-      setConnection('simulated')
-      simulationTimer = window.setInterval(() => {
-        setLocation((current) => ({
-          ...current,
-          latitude: Number(current.latitude) + 0.00004,
-          longitude: Number(current.longitude) + 0.00003,
-          status: 'simulated',
-          updatedAt: new Date().toISOString(),
-        }))
-      }, 2500)
-      return () => window.clearInterval(simulationTimer)
+      setConnection('unavailable')
+      return undefined
     }
 
     const socket = new WebSocket(websocketUrl)
     socketRef.current = socket
     socket.onopen = () => setConnection('connected')
-    socket.onclose = () => setConnection('reconnecting')
+    socket.onclose = () => setConnection('unavailable')
     socket.onerror = () => setConnection('reconnecting')
     socket.onmessage = (event) => {
       try {

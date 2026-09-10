@@ -224,3 +224,78 @@ The telemetry contract is:
     "status": "active"
 }
 ```
+
+## Local environment and split deployment
+
+There is no need to commit an environment file. Create one locally from the template:
+
+```bash
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+For the complete local stack, run the location relay and optional services in separate terminals:
+
+```bash
+npm run location:server
+python -m pip install -r yield_model/requirements.txt
+python yield_model/app.py
+```
+
+The production topology is:
+
+```text
+GitHub Pages (static Next.js frontend)
+                | HTTPS API calls / WSS telemetry
+                v
+Cloud Run: AgroVani Next.js API + Cloud Run: location WebSocket relay
+                |
+                +-- Supabase, Gemini, LiveKit, optional yield-model service
+```
+
+GitHub Pages cannot run the `app/api` route or a persistent WebSocket server. The Pages workflow temporarily excludes that server-only route while exporting the frontend; the browser uses `NEXT_PUBLIC_API_BASE_URL` for API calls and `NEXT_PUBLIC_LOCATION_WS_URL` for the live driver stream. The driver route publishes GPS updates, and farmer maps subscribe to the same `driver-demo` stream with simulated motion when GPS permission is unavailable.
+
+### Deploy the Next backend to Google Cloud Run
+
+Install and authenticate the Google Cloud CLI, then replace the placeholders with the supplied project and region:
+
+```bash
+gcloud auth login
+gcloud config set project YOUR_GCP_PROJECT_ID
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+gcloud builds submit --tag gcr.io/YOUR_GCP_PROJECT_ID/agrovani-api .
+gcloud run deploy agrovani-api \
+    --image gcr.io/YOUR_GCP_PROJECT_ID/agrovani-api \
+    --region YOUR_REGION --platform managed --allow-unauthenticated \
+    --set-env-vars "NEXT_PUBLIC_BASE_URL=https://agrovani-api-YOUR_HASH-YOUR_REGION.a.run.app,CORS_ORIGINS=https://YOUR_GITHUB_USER.github.io,YIELD_MODEL_API_URL=YOUR_YIELD_MODEL_URL" \
+    --set-env-vars "NEXT_PUBLIC_SUPABASE_URL=YOUR_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY" \
+    --set-secrets "SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,LIVEKIT_API_KEY=LIVEKIT_API_KEY:latest,LIVEKIT_API_SECRET=LIVEKIT_API_SECRET:latest"
+```
+
+Create the referenced Secret Manager secrets before deployment. Keep `SUPABASE_SERVICE_ROLE_KEY`, Gemini, and LiveKit secrets only in Secret Manager or Cloud Run environment settings, never in GitHub Pages variables.
+
+### Deploy the live location relay to Cloud Run
+
+```bash
+gcloud builds submit --tag gcr.io/YOUR_GCP_PROJECT_ID/agrovani-location --file server/Dockerfile .
+gcloud run deploy agrovani-location \
+    --image gcr.io/YOUR_GCP_PROJECT_ID/agrovani-location \
+    --region YOUR_REGION --platform managed --allow-unauthenticated \
+    --timeout 3600 --concurrency 1000
+```
+
+Use the resulting `https://...run.app` hostname as `wss://...run.app` for `NEXT_PUBLIC_LOCATION_WS_URL`. Cloud Run supports WebSocket upgrades, but the relay is intentionally stateless across instance restarts; use a managed realtime service or shared store when multiple relay instances are required.
+
+### Configure GitHub Pages
+
+Enable **Settings -> Pages -> GitHub Actions**. Add these repository variables under **Settings -> Secrets and variables -> Actions -> Variables**:
+
+```text
+NEXT_PUBLIC_API_BASE_URL=https://agrovani-api-...run.app
+NEXT_PUBLIC_LOCATION_WS_URL=wss://agrovani-location-...run.app
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+Push to `main`; `.github/workflows/deploy-pages.yml` builds and publishes the frontend at `https://YOUR_GITHUB_USER.github.io/YOUR_REPOSITORY/`.
