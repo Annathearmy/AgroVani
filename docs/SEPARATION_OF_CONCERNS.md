@@ -12,86 +12,57 @@ The recommended end state is a **modular monorepo**, not two immediately decoupl
 
 ### Implemented first phase
 
-- Reusable frontend components and hooks now live under `src/components` and `src/hooks`.
+- Reusable frontend components and hooks now live under `web/src/components` and `web/src/hooks`.
 - Server-only adapters, AI integration, services, database selection, and Supabase access now live under `backend/src`.
 - Zod request contracts now live under `contracts/src` and validate farm, listing, and order writes.
 - The Next route tree now lives under `web/app`; root scripts invoke the web package from its own project root.
 
 ### Immediate blockers found
 
-1. `package.json` is invalid JSON: commas are missing after `test:advisory` and `tsx`, and `postcss`/`tailwindcss` are duplicated in `devDependencies`. `npm ci`, the Docker builds, and the Pages workflow cannot be trusted until this is repaired.
-2. `app/api/[[...path]]/route.js` is a catch-all controller containing routing, validation, persistence selection, seed data, domain calculations, provider calls, AI prompts, payment logic, and response formatting.
+1. The compatibility API remains a large catch-all controller at `web/app/api/[[...path]]/route.js`; it should eventually be split into explicit controllers.
+2. The catch-all controller contains routing, validation, persistence selection, seed data, domain calculations, provider calls, AI prompts, payment logic, and response formatting.
 3. The route contains duplicate route branches and duplicated object keys. Examples include an early and later `/mandi` branch and repeated `id`, `sellerId`, `priceInr`, and `stockUnits` fields in marketplace listing creation.
 4. Persistence is not a single boundary: the API chooses Supabase, MongoDB, or an in-memory store at runtime. The in-memory implementation is embedded in the route and is process-local/non-durable.
-5. `server/location-server.js` is a separately deployed concern, but it remains under the main repository without a package boundary. `server/Dockerfile` invokes it directly; move it into an independently buildable location-service app.
+5. The location service now has an independent boundary under `services/location`.
 6. Authentication and authorization are not a distinct backend boundary. Several endpoints accept caller-supplied `ownerId`, `buyerId`, `sellerId`, or `userEmail`, and the server Supabase client uses the service-role key. Identity must be derived from a verified session before production use.
 7. The deployment model is contradictory: Vercel/standalone Next.js, GitHub Pages static export, a Node WebSocket container, and local Python services are all present. Each deployment target needs an explicit capability matrix.
-8. `supabase/schema.sql` creates tables and enables RLS, but the audit found no corresponding policy definitions in the inspected file. RLS without policies can either block intended access or encourage unsafe service-role bypasses.
-
-The cheapest discriminating check used during the audit was JSON parsing of `package.json`; it fails before application tests can run.
+8. `backend/supabase/schema.sql` creates tables and enables RLS, but the audit found no corresponding policy definitions in the inspected file.
 
 ## 2. Current Inventory by Functional Domain
 
 ### Frontend: routes, views, styling, and client state
 
-- `app/page.js`: landing/home view.
-- `app/login/page.js`: login view.
-- `app/plans/page.js`: plans/payment view.
-- `app/admin/dashboard/page.js`: admin dashboard view.
-- `app/buyer/dashboard/page.js`: buyer dashboard view.
-- `app/driver/dashboard/page.js`: driver dashboard view.
-- `app/driver/route/page.js`: driver route view.
-- `app/farmer/dashboard/page.js`: farmer dashboard view.
-- `app/farmer/advisory/page.js`: farmer advisory view.
-- `app/farmer/onboarding/page.js`: farmer onboarding view.
-- `app/farmer/operations/page.js`: farmer operations view.
-- `app/farmer/weather/page.js`: farmer weather view.
-- `app/layout.js`: root layout, metadata, font, and global providers.
-- `app/providers.js`: client-side React Query and language providers.
-- `app/manifest.js`: PWA manifest route/configuration.
-- `app/globals.css`: global CSS and Tailwind layer.
+- `web/app/**`: Next.js landing, login, plans, admin, buyer, driver, farmer, seller, API, layout, providers, manifest, and global styling.
 - `src/components/admin/LiveDriverTracker.js`, `src/components/buyer/BuyerFarmerMap.js`, `src/components/driver/GoogleDriverMap.js`: role-specific UI.
 - `src/components/farmer/*.js`: farmer maps, booking, weather, voice, and spatial-field UI.
 - `src/components/InstallAppButton.js`, `src/components/LanguageSwitcher.js`, `src/components/RazorpayButton.js`, `src/components/SupportDock.js`: shared application UI.
 - `src/components/ui/*.jsx`: generated/shared Radix and shadcn-style presentation primitives. These have no domain or database imports.
 - `src/hooks/use-mobile.jsx`, `src/hooks/use-toast.js`, `src/hooks/useLiveLocation.js`: client hooks; realtime transport should be isolated behind a client adapter.
-- `public/icon.svg`: application icon asset.
-- `public/sw.js`: service worker asset.
-- `lib/i18n/LanguageContext.js`: client language state/provider.
-- `lib/i18n/en.js`, `lib/i18n/hi.js`, `lib/i18n/pa.js`: locale dictionaries.
-- `lib/i18n/index.js`, `lib/i18n/recommendation.js`: i18n exports and recommendation strings.
-- `lib/data/plans.js`, `lib/data/seedCatalog.js`, `lib/data/mandiDemo.js`: frontend-consumed/reference data. Demo data must be explicitly separated from production fixtures.
-- `lib/constants/testIds/*.js`: UI test identifiers; `auth.js`, `home.js`, and `index.js` are test-support constants, not domain constants.
+- `web/public/*`: application icon and service worker assets.
+- `web/src/lib/i18n/*`: client language state, dictionaries, and recommendation strings.
+- `web/src/lib/data/*`: frontend plans and seed catalog data.
+- `web/src/lib/constants/testIds/*`: UI test identifiers.
 
 ### Backend: HTTP, realtime, application services, and integrations
 
-- `app/api/[[...path]]/route.js`: current unified HTTP controller and backend composition root. It handles LiveKit token issuance, crop diagnosis, products, mandi/MSP, yield prediction, reports, payments, recommendations, assistant text/audio, tasks, messages, earnings, dispatch, translation, satellite, geocoding, farms, buyer needs/sellers, agri-loop, marketplace listings/orders, notifications, bookings, stress diagnostics, weather, and seeding. This is the primary refactoring target.
-- `lib/server/services/mandiService.js`, `lib/server/services/reportService.js`, `lib/server/services/yieldModel.js`: backend application services.
-- `lib/server/adapters/*.js`: weather, Cloud Next, and CEHub provider adapters.
-- `lib/server/ai/gemini.js`: Gemini prompt/response mapping helpers.
-- `lib/server/supabase.js`: server database adapter plus Mongo-like collection abstraction.
-- `lib/supabase/client.js`: browser Supabase client factory.
-- `lib/api.js`: frontend API URL helper.
-- `server/location-server.js`: Node HTTP health endpoint and WebSocket location broadcast service.
-- `server/Dockerfile`: location service image.
-- `agent/agent.py`: LiveKit/Gemini voice agent runtime.
-- `agent/requirements.txt`: voice agent dependencies.
-- `agent/.env.example`: voice-agent environment template.
-- `yield_model/app.py`: Flask yield model HTTP service, validation, model loading, fallback, and HTML rendering.
-- `yield_model/requirements.txt`: yield model dependencies.
-- `yield_model/templates/index.html`, `yield_model/static/style.css`: yield service's server-rendered diagnostic UI; keep separate from the Next frontend.
+- `web/app/api/[[...path]]/route.js`: current unified HTTP compatibility controller.
+- `backend/src/services/*.js`: backend application services.
+- `backend/src/adapters/*.js`: weather, Cloud Next, and CEHub provider adapters.
+- `backend/src/ai/gemini.js`: Gemini prompt/response mapping helpers.
+- `backend/src/database.js`, `backend/src/supabase.js`: server database boundary.
+- `web/src/lib/supabase/client.js`, `web/src/lib/api.js`: browser client utilities.
+- `services/location/*`: Node HTTP health endpoint, WebSocket location service, and image.
+- `services/voice-agent/*`: LiveKit/Gemini voice agent runtime and dependencies.
+- `services/yield-model/*`: Flask yield model service, dependencies, templates, and static assets.
 
 ### Models, schemas, domain logic, and validation
 
-- `supabase/schema.sql`: PostgreSQL/Supabase tables, foreign keys, checks, extensions implied by UUID defaults, and RLS enablement.
-- `data/advisory.schema.sql`: SQLite advisory snapshot tables and lookup index.
-- `lib/calculations/cropRecommendation.js`: crop stress, economics, product catalog, and recommendations.
-- `lib/calculations/residueRecommendation.js`: residue and field-readiness calculations plus district reference data.
-- `lib/calculations/agriLoop.js`: incentive, crop calendar, and yield projection calculations.
-- `lib/data/mandiDemo.js`: demo mandi rows, which are a data fixture rather than a service.
-- `lib/server/services/*.js`: backend application orchestration; pure calculations remain in `lib/calculations`.
-- `app/api/[[...path]]/route.js`: currently contains inline request validation and response DTO shaping. Move these to explicit schemas/contracts.
-- `model/README.md`: model artifact/documentation boundary. The actual `rf_yield_model.joblib` artifact is not tracked in the inventory.
+- `backend/supabase/schema.sql`: PostgreSQL/Supabase tables, foreign keys, checks, and RLS enablement.
+- `backend/data/advisory.schema.sql`: SQLite advisory snapshot tables and lookup index.
+- `science/src/*.js`: crop stress, residue, agri-loop, and recommendation calculations.
+- `backend/data/mandiDemo.js`: demo mandi rows, which are a data fixture rather than a service.
+- `contracts/src/api.js`: shared request validation contracts.
+- `science/model/README.md`: model artifact/documentation boundary.
 - `tests/advisory.test.mjs`, `tests/agriLoop.test.js`, `tests/gemini.test.js`: JavaScript domain/service tests.
 - `tests/test_yield_model_service.py`: Python yield service tests.
 - `tests/__init__.py`: Python test package marker.
@@ -101,33 +72,30 @@ There are no TypeScript DTOs or a shared runtime validation package today. `zod`
 
 ### Infrastructure, configuration, deployment, and environment
 
-- `package.json`: Node dependencies/scripts; currently invalid and duplicated in places.
+- `package.json`: root Node dependencies and workspace commands.
 - `package-lock.json`: npm lockfile; must be regenerated only after correcting the manifest and choosing npm or Yarn as the single package manager.
-- `next.config.js`: Next output mode, base path, image policy, server external packages, webpack watch settings, and global headers.
-- `jsconfig.json`: path aliases for root, components, lib, and app.
-- `components.json`: shadcn/component generator configuration.
-- `postcss.config.js`: PostCSS configuration.
-- `tailwind.config.js`: Tailwind configuration.
+- `web/next.config.js`: Next output mode, image policy, server packages, and headers.
+- `web/jsconfig.json`: web and cross-package path aliases.
+- `web/components.json`, `web/postcss.config.js`, `web/tailwind.config.js`: web tooling configuration.
 - `Dockerfile`: multi-stage Next standalone image.
 - `vercel.json`: Vercel framework/install/build configuration.
-- `.github/workflows/deploy-pages.yml`: GitHub Pages static build; temporarily moves `app/api` out before export.
+- `.github/workflows/deploy-pages.yml`: GitHub Pages static build; temporarily moves `web/app/api` out before export.
 - `.devcontainer/devcontainer.json`: development container configuration.
 - `.dockerignore`: Docker build exclusions.
 - `.gitignore`: ignored dependencies, environment files, build output, Python caches, and artifacts.
 - `.env.example`: application environment contract for APIs, databases, maps, payments, AI, and realtime services.
 - `.env`: local environment file; ignored and secret-bearing, never move into source control or documentation.
-- `requirements.txt`: Python aggregate requirements, currently includes `yield_model/requirements.txt`.
+- `requirements.txt`: Python aggregate requirements, currently includes `services/yield-model/requirements.txt`.
 - `memory/.gitkeep`: empty repository memory placeholder; not application runtime state.
 
 ### Shared/cross-cutting concerns
 
-- `lib/utils.js`: shared class-name/UI utility.
-- `lib/utils/advisory.js`: advisory freshness/validation/formatting helpers.
-- `lib/constants/testIds/*`: test cross-cutting support.
-- `lib/i18n/*`: localization cross-cutting support.
-- `lib/api.js`: HTTP client addressing cross-cutting support.
-- `app/providers.js`: client state/provider composition.
-- `public/sw.js`: offline/PWA cross-cutting behavior.
+- `web/src/lib/utils.js`, `shared/advisory.js`: shared UI and advisory utilities.
+- `web/src/lib/constants/testIds/*`: test cross-cutting support.
+- `web/src/lib/i18n/*`: localization cross-cutting support.
+- `web/src/lib/api.js`: HTTP client addressing support.
+- `web/app/providers.js`: client state/provider composition.
+- `web/public/sw.js`: offline/PWA cross-cutting behavior.
 - `README.md`: product, local development, API, and deployment documentation; update after the move.
 
 ## 3. Target Monorepo Structure
