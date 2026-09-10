@@ -4,12 +4,15 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import React from 'react'
 import Link from 'next/link'
 import FarmMapCard from '@/components/farmer/FarmMapCard'
+import WeatherMapCard from '@/components/farmer/WeatherMapCard'
 import BookMachineryCard from '@/components/farmer/BookMachineryCard'
 import LiveKitVoiceAgent from '@/components/farmer/LiveKitVoiceAgent'
+import RazorpayButton from '@/components/RazorpayButton'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import InstallAppButton from '@/components/InstallAppButton'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 import { getRecommendationCopy } from '@/lib/i18n/recommendation'
+import { plans } from '@/lib/data/plans'
 import { apiUrl } from '@/lib/api'
 import SupportDock from '@/components/SupportDock'
 import {
@@ -583,7 +586,7 @@ export default function App() {
               <div className="inline-flex rounded-full border border-white/80 bg-white/70 p-1 shadow-[0_8px_20px_rgba(0,0,0,0.05)] backdrop-blur-md">
                 <Link href="/farmer/operations" className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-900"><Wheat className="h-4 w-4" /> Operations</Link>
                 <button onClick={() => setTab('crop')} className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${tab === 'crop' ? 'bg-[#006a42] text-white shadow-md shadow-emerald-600/20' : 'text-slate-600 hover:text-slate-900'}`}>
-                  <FlaskConical className="h-4 w-4" /> {copy.cropTab}
+                  <FlaskConical className="h-4 w-4" /> Live Weather
                 </button>
               </div>
 
@@ -767,7 +770,7 @@ export default function App() {
                   <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-700">LIVE</span>
                 </div>
 
-                <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+                <div className="mt-5">
                   <div className="rounded-[24px] border border-slate-200 bg-white/80 p-4 shadow-sm">
                     <div className="flex min-h-[240px] flex-col gap-3 overflow-y-auto pr-1">
                       {chatMessages.map((message, index) => (
@@ -798,19 +801,6 @@ export default function App() {
                     </form>
                   </div>
 
-                  <div className="rounded-[24px] border border-slate-200 bg-gradient-to-br from-violet-600 to-indigo-600 p-5 text-white shadow-sm">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-100">Agent controls</p>
-                    <h4 className="mt-3 text-2xl font-bold">AgroSaathi</h4>
-                    <ul className="mt-5 space-y-3 text-sm text-violet-50">
-                      <li>• Multi-language response support</li>
-                      <li>• Crop cycle planning guidance</li>
-                      <li>• Residue and logistics context</li>
-                      <li>• Custom user prompts and commands</li>
-                    </ul>
-                    <div className="mt-6 rounded-2xl border border-white/15 bg-white/10 p-4 text-sm text-violet-50">
-                      Model context: crop, stress, residue, logistics, and market demand are included in each response.
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -865,10 +855,13 @@ export default function App() {
                 <div className="mt-6 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Live driver dispatch</p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Live Tracking</p>
                       <h4 className="mt-2 text-2xl font-bold text-slate-900">Residue collection in progress</h4>
                     </div>
-                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">12 active</span>
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">12 active</span>
+                      <Link href="/driver/route" className="rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700">Open route</Link>
+                    </div>
                   </div>
 
                   <div className="mt-5 grid gap-3 lg:grid-cols-3">
@@ -902,7 +895,7 @@ export default function App() {
                 <p className="text-lg font-semibold">{copy.roi}: {diag?.economics?.roiPercent != null ? `${diag.economics.roiPercent}%` : '—'}</p>
                 <span className="hidden h-6 w-px bg-white/40 sm:block" />
                 <p className="text-lg font-semibold">{copy.grossReturn}: ₹{diag?.economics?.netReturn?.toLocaleString('en-IN') || '—'}</p>
-                <span className="ml-auto rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">Causal ROI attribution</span>
+                <span className="ml-auto rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">Estimated treatment advantage</span>
               </div>
 
               <div className="glass-card">
@@ -1069,9 +1062,29 @@ export default function App() {
                 </div>
               </div>
 
+              <WeatherMapCard />
               <FarmMapCard lat={farm?.latitude} lon={farm?.longitude} mode="crop" stressScore={Math.max(diag?.scores?.diurnal || 0, diag?.scores?.night || 0)} title="Live Crop Position Tracking" />
             </div>
           )}
+
+          <section className="mt-8 rounded-[28px] border border-white/80 bg-white/75 p-6 shadow-sm backdrop-blur-md">
+            <div className="mb-6">
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-600">Membership</p>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Our Plans</h2>
+            </div>
+            <div className="grid gap-5 lg:grid-cols-3">
+              {plans.map((plan) => (
+                <div key={plan.id} className={`relative rounded-[24px] border p-5 ${plan.highlight ? 'border-emerald-200 bg-emerald-50 ring-2 ring-emerald-100' : 'border-slate-200 bg-white'}`}>
+                  {plan.highlight && <span className="absolute right-4 top-4 rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white">Best value</span>}
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">{plan.name}</p>
+                  <p className="mt-4 text-3xl font-bold text-slate-900">{plan.priceInr === 0 ? '₹0' : `₹${plan.priceInr.toLocaleString('en-IN')}`}<span className="ml-2 text-sm font-medium text-slate-500">/mo</span></p>
+                  <p className="mt-2 text-sm text-slate-600">{plan.note}</p>
+                  <ul className="mt-5 space-y-2 text-sm text-slate-700">{plan.features.map((feature) => <li key={feature} className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-emerald-500" />{feature}</li>)}</ul>
+                  <RazorpayButton plan={plan} />
+                </div>
+              ))}
+            </div>
+          </section>
 
           {orderReceipt && (
             <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="order-receipt-title">

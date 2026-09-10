@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Navigation, MapPinned, Clock3, PackageCheck, AlertCircle, Route, Radio } from 'lucide-react'
+import GoogleDriverMap from '@/components/driver/GoogleDriverMap'
 
 const checkpoints = [
   { name: 'Seed depot', time: '08:20', status: 'Complete' },
@@ -98,6 +99,11 @@ export default function DriverRoutePage() {
               </div>
               <div className="mt-4 flex items-center justify-between text-sm"><span className="text-slate-300">{routeState}</span><span className="font-bold text-emerald-300">{progress}%</span></div>
               <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-violet-400 transition-all duration-1000" style={{ width: `${progress}%` }} /></div>
+            </div>
+
+            <div className="mt-5 overflow-hidden rounded-[24px] border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">Google Maps navigation</div>
+              <GoogleDriverMap />
             </div>
 
             <div className="mt-6 space-y-3">

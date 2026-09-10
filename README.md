@@ -131,6 +131,7 @@ AgroVani/
 │   ├── api/[[...path]]/       # Unified API routing layer
 │   ├── farmer/
 │   │   ├── dashboard/         # Farmer core dashboard
+│   │   ├── advisory/           # Yield, mandi, MSP and report dashboard
 │   │   └── onboarding/        # Guided profile & field setup
 │   ├── seller/dashboard/      # Machinery inventory & bookings
 │   ├── login/                 # Role-based authentication
@@ -143,6 +144,9 @@ AgroVani/
 ├── lib/
 │   ├── adapters/              # Weather and CEHub data integration
 │   ├── calculations/          # Crop & stubble residue algorithms
+│   ├── data/                  # Clearly labeled demo mandi/MSP records
+│   ├── services/              # Yield, mandi and report business logic
+│   ├── utils/                 # Validation, freshness and formatting helpers
 │   ├── constants/             # Test IDs and application constants
 │   ├── i18n/                  # Language dictionaries (en, hi, pa)
 │   ├── supabase/              # Browser & server Supabase clients
@@ -169,133 +173,25 @@ Debayan Paul, Annesha Chakraborty, Ayan Chatterjee and Nikita Bose
 
 Built with passion for sustainable agriculture and rural empowerment.
 
-## Random Forest yield percentage service
+## Farmer Advisory MVP
 
-The repository includes a Codespaces-ready Flask service under `yield_model/` for the trained Random Forest yield model. Add the trusted artifact at `model/rf_yield_model.joblib`; it must expose `predict()` and accept these feature columns in this exact order:
+Open `/farmer/advisory` for the mobile-friendly yield and mandi dashboard.
+The API routes are:
 
-```text
-soil_pH, nitrogen_ppm, seasonal_rainfall_mm, avg_temp_c, ndvi_peak
-```
+- `POST /api/yield-prediction`: observational baseline, range, confidence, uncertainty risk, and estimated treatment advantage.
+- `GET /api/mandi`: commodity, state, and market filters with latest modal price, seven-day rows, source, and freshness.
+- `GET /api/msp`: premium/discount versus the configured MSP record and a soft signal.
+- `POST /api/report/pdf`: one-page printable PDF summary.
+- `POST /api/report/whatsapp`: short forwardable farmer-group message.
 
-Start the service in Codespaces with:
+The seeded mandi rows in `lib/data/mandiDemo.js` are demo records shaped like Agmarknet data and are explicitly marked non-official. They must be replaced by verified Agmarknet/Agmarknet 2.0 records before production use. Missing or stale values are returned as `insufficient data`; the UI never guesses.
 
-```bash
-python -m pip install -r yield_model/requirements.txt
-python yield_model/app.py
-```
-
-The service is available on port `5000`:
+### Codespaces setup
 
 ```bash
-curl http://localhost:5000/health
-curl -X POST http://localhost:5000/predict \
-    -H 'Content-Type: application/json' \
-    -d '{"soil_pH":6.5,"nitrogen_ppm":120,"seasonal_rainfall_mm":800,"avg_temp_c":25,"ndvi_peak":0.72}'
-```
-
-The Next.js API exposes the same contract at `POST /api/yield-predict`. Set `YIELD_MODEL_API_URL=http://localhost:5000/predict` locally or to the deployed model service URL. Without that variable, AgroVani returns a clearly labeled bounded heuristic fallback; it never labels the fallback as Random Forest output.
-
-## Spatial 3D and live location tracking
-
-The farm map combines Leaflet for practical map layers with a lightweight React Three Fiber field surface for spatial context. Driver coordinates update in-place through a WebSocket connection; the page does not reload.
-
-Run the location relay locally in a second terminal:
-
-```bash
-npm run location:server
-```
-
-Set this in `.env.local` for the browser:
-
-```text
-NEXT_PUBLIC_LOCATION_WS_URL=ws://localhost:8787
-```
-
-The browser uses a visible simulated stream when the variable is absent, which keeps local demos usable. For production, deploy `server/location-server.js` as a persistent Node service with TLS and set `NEXT_PUBLIC_LOCATION_WS_URL` to its `wss://` URL. Vercel serverless functions are not suitable for holding persistent WebSocket connections; use a managed realtime provider or a separate long-running service for production telemetry.
-
-The telemetry contract is:
-
-```json
-{
-    "type": "location_update",
-    "id": "driver-123",
-    "latitude": 30.34,
-    "longitude": 76.39,
-    "status": "active"
-}
-```
-
-## Local environment and split deployment
-
-There is no need to commit an environment file. Create one locally from the template:
-
-```bash
-cp .env.example .env.local
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
-For the complete local stack, run the location relay and optional services in separate terminals:
-
-```bash
-npm run location:server
-python -m pip install -r yield_model/requirements.txt
-python yield_model/app.py
-```
-
-The production topology is:
-
-```text
-GitHub Pages (static Next.js frontend)
-                | HTTPS API calls / WSS telemetry
-                v
-Cloud Run: AgroVani Next.js API + Cloud Run: location WebSocket relay
-                |
-                +-- Supabase, Gemini, LiveKit, optional yield-model service
-```
-
-GitHub Pages cannot run the `app/api` route or a persistent WebSocket server. The Pages workflow temporarily excludes that server-only route while exporting the frontend; the browser uses `NEXT_PUBLIC_API_BASE_URL` for API calls and `NEXT_PUBLIC_LOCATION_WS_URL` for the live driver stream. The driver route publishes GPS updates, and farmer maps subscribe to the same `driver-demo` stream with simulated motion when GPS permission is unavailable.
-
-### Deploy the Next backend to Google Cloud Run
-
-Install and authenticate the Google Cloud CLI, then replace the placeholders with the supplied project and region:
-
-```bash
-gcloud auth login
-gcloud config set project YOUR_GCP_PROJECT_ID
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
-gcloud builds submit --tag gcr.io/YOUR_GCP_PROJECT_ID/agrovani-api .
-gcloud run deploy agrovani-api \
-    --image gcr.io/YOUR_GCP_PROJECT_ID/agrovani-api \
-    --region YOUR_REGION --platform managed --allow-unauthenticated \
-    --set-env-vars "NEXT_PUBLIC_BASE_URL=https://agrovani-api-YOUR_HASH-YOUR_REGION.a.run.app,CORS_ORIGINS=https://YOUR_GITHUB_USER.github.io,YIELD_MODEL_API_URL=YOUR_YIELD_MODEL_URL" \
-    --set-env-vars "NEXT_PUBLIC_SUPABASE_URL=YOUR_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY" \
-    --set-secrets "SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,LIVEKIT_API_KEY=LIVEKIT_API_KEY:latest,LIVEKIT_API_SECRET=LIVEKIT_API_SECRET:latest"
-```
-
-Create the referenced Secret Manager secrets before deployment. Keep `SUPABASE_SERVICE_ROLE_KEY`, Gemini, and LiveKit secrets only in Secret Manager or Cloud Run environment settings, never in GitHub Pages variables.
-
-### Deploy the live location relay to Cloud Run
-
-```bash
-gcloud builds submit --tag gcr.io/YOUR_GCP_PROJECT_ID/agrovani-location --file server/Dockerfile .
-gcloud run deploy agrovani-location \
-    --image gcr.io/YOUR_GCP_PROJECT_ID/agrovani-location \
-    --region YOUR_REGION --platform managed --allow-unauthenticated \
-    --timeout 3600 --concurrency 1000
-```
-
-Use the resulting `https://...run.app` hostname as `wss://...run.app` for `NEXT_PUBLIC_LOCATION_WS_URL`. Cloud Run supports WebSocket upgrades, but the relay is intentionally stateless across instance restarts; use a managed realtime service or shared store when multiple relay instances are required.
-
-### Configure GitHub Pages
-
-Enable **Settings -> Pages -> GitHub Actions**. Add these repository variables under **Settings -> Secrets and variables -> Actions -> Variables**:
-
-```text
-NEXT_PUBLIC_API_BASE_URL=https://agrovani-api-...run.app
-NEXT_PUBLIC_LOCATION_WS_URL=wss://agrovani-location-...run.app
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-```
-
-Push to `main`; `.github/workflows/deploy-pages.yml` builds and publishes the frontend at `https://YOUR_GITHUB_USER.github.io/YOUR_REPOSITORY/`.
+The MVP uses the existing Mongo/Supabase persistence boundary for farm records and keeps advisory seed data isolated in `lib/data`. Set `ADVISORY_DB_PATH` when connecting a SQLite adapter for deployment; the service layer is storage-independent so that adapter can be enabled without changing the UI or API contract. No model training dependency is required: the current baseline is clearly labeled and includes MAE, RMSE, and calibration-error helpers for backtesting once historical observations are available.

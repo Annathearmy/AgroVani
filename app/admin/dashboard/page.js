@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, BarChart3, ShieldCheck, Users, Search, CheckCircle2 } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import LiveDriverTracker from '@/components/admin/LiveDriverTracker'
 import { apiUrl } from '@/lib/api'
 
 export default function AdminDashboard() {
@@ -74,6 +75,7 @@ export default function AdminDashboard() {
         </section>
 
         <section className="mt-6 rounded-[28px] border border-white/80 bg-white/75 p-6 shadow-sm backdrop-blur-md"><div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-500">Farmer operations</p><h2 className="mt-2 text-2xl font-bold text-slate-900">Find a farmer or request</h2></div><div className="flex min-w-[240px] items-center gap-2 rounded-xl border border-slate-200 bg-white/70 px-3"><Search className="h-4 w-4 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the action queue" className="w-full bg-transparent py-2 text-sm outline-none" /></div></div><div className="mt-4 flex items-center gap-2 text-sm text-slate-600"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Verification actions are tracked locally in this demo portal.</div></section>
+        <LiveDriverTracker />
       </div>
     </main>
   )

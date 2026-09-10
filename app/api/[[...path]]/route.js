@@ -1,4 +1,5 @@
 import { MongoClient } from 'mongodb'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { v4 as uuidv4 } from 'uuid'
 import { NextResponse } from 'next/server'
 import { AccessToken } from 'livekit-server-sdk'
@@ -9,6 +10,11 @@ import { computeResidue, computeFieldReadiness, DISTRICT_DATA, getDistrictData }
 import { calculateIncentivePlan, buildCropCalendar, calculateYieldProjection } from '@/lib/calculations/agriLoop'
 import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/ai/gemini'
 import { createSupabaseDb, getSupabaseServerClient } from '@/lib/supabase/server'
+import { predictYield } from '@/lib/services/yieldModel'
+import { compareMsp, lookupMandiPrices } from '@/lib/services/mandiService'
+import { buildFarmReportPdf, createWhatsAppText } from '@/lib/services/reportService'
+import { fetchIndiaWeather } from '@/lib/adapters/cloudNextWeather'
+import { plans } from '@/lib/data/plans'
 
 const runtimeStore = globalThis
 let client = runtimeStore.__agrovaniMongoClient || null
@@ -23,6 +29,7 @@ function createMemoryCollection(initialRows = []) {
     if (value === undefined) return true
     if (value && typeof value === 'object' && Array.isArray(value.$in)) return value.$in.includes(row[key])
     if (value && typeof value === 'object' && !Array.isArray(value)) {
+    if (Array.isArray(value.$in)) return value.$in.includes(row[key])
       return Object.entries(value).every(([nestedKey, nestedValue]) => {
         const source = row[key]
         if (source && typeof source === 'object') return source[nestedKey] === nestedValue
@@ -98,6 +105,7 @@ function createMemoryDb() {
     bookings: createMemoryCollection(),
     marketplace_listings: createMemoryCollection(),
     marketplace_orders: createMemoryCollection(),
+    buyer_needs: createMemoryCollection(),
     admin_reviews: createMemoryCollection(),
     notifications: createMemoryCollection(),
     residue_profiles: createMemoryCollection(),
@@ -165,6 +173,11 @@ function ok(data, status = 200) {
   return handleCORS(NextResponse.json(data, { status }))
 }
 
+function pdf(data) {
+  const response = new NextResponse(data, { status: 200 })
+  response.headers.set('Content-Type', 'application/pdf')
+  response.headers.set('Content-Disposition', 'inline; filename="agrovani-farm-report.pdf"')
+  return handleCORS(response)
 function buildProductRecommendation({ crop, state, areaInAcres, usedProducts = [], diagnostic = {} }) {
   const usedNames = new Set(usedProducts.map((name) => String(name).trim().toLowerCase()).filter(Boolean))
   const compatible = PRODUCT_CATALOG.filter((product) => !product.crops || product.crops.includes(crop))
@@ -257,11 +270,11 @@ export async function OPTIONS() {
 }
 
 const SEED_FARMS = [
-  { name: 'Gurpreet Singh', village: 'Patiala', district: 'Patiala', state: 'Punjab', cropType: 'Rice', areaInAcres: 6, latitude: 30.3398, longitude: 76.3869, soilPh: 6.4, nitrogenKgPerHa: 95 },
-  { name: 'Harjinder Kaur', village: 'Ludhiana', district: 'Ludhiana', state: 'Punjab', cropType: 'Wheat', areaInAcres: 8, latitude: 30.901, longitude: 75.8573, soilPh: 6.8, nitrogenKgPerHa: 110 },
-  { name: 'Ramesh Patel', village: 'Indore', district: 'Indore', state: 'Madhya Pradesh', cropType: 'Soybean', areaInAcres: 5, latitude: 22.7196, longitude: 75.8577, soilPh: 6.2, nitrogenKgPerHa: 80 },
-  { name: 'Vijay Deshmukh', village: 'Nagpur', district: 'Nagpur', state: 'Maharashtra', cropType: 'Cotton', areaInAcres: 7, latitude: 21.1458, longitude: 79.0882, soilPh: 7.1, nitrogenKgPerHa: 105 },
-  { name: 'Lakshmi Reddy', village: 'Guntur', district: 'Guntur', state: 'Andhra Pradesh', cropType: 'Rice', areaInAcres: 9, latitude: 16.3067, longitude: 80.4365, soilPh: 6.6, nitrogenKgPerHa: 120 },
+  { id: '00000000-0000-4000-8000-000000000001', ownerId: 'farmer@agrovani.in', name: 'Gurpreet Singh', village: 'Patiala', district: 'Patiala', state: 'Punjab', cropType: 'Rice', areaInAcres: 6, latitude: 30.3398, longitude: 76.3869, soilPh: 6.4, nitrogenKgPerHa: 95 },
+  { id: '00000000-0000-4000-8000-000000000002', ownerId: 'farmer@agrovani.in', name: 'Harjinder Kaur', village: 'Ludhiana', district: 'Ludhiana', state: 'Punjab', cropType: 'Wheat', areaInAcres: 8, latitude: 30.901, longitude: 75.8573, soilPh: 6.8, nitrogenKgPerHa: 110 },
+  { id: '00000000-0000-4000-8000-000000000003', ownerId: 'farmer@agrovani.in', name: 'Ramesh Patel', village: 'Indore', district: 'Indore', state: 'Madhya Pradesh', cropType: 'Soybean', areaInAcres: 5, latitude: 22.7196, longitude: 75.8577, soilPh: 6.2, nitrogenKgPerHa: 80 },
+  { id: '00000000-0000-4000-8000-000000000004', ownerId: 'farmer@agrovani.in', name: 'Vijay Deshmukh', village: 'Nagpur', district: 'Nagpur', state: 'Maharashtra', cropType: 'Cotton', areaInAcres: 7, latitude: 21.1458, longitude: 79.0882, soilPh: 7.1, nitrogenKgPerHa: 105 },
+  { id: '00000000-0000-4000-8000-000000000005', ownerId: 'farmer@agrovani.in', name: 'Lakshmi Reddy', village: 'Guntur', district: 'Guntur', state: 'Andhra Pradesh', cropType: 'Rice', areaInAcres: 9, latitude: 16.3067, longitude: 80.4365, soilPh: 6.6, nitrogenKgPerHa: 120 },
 ]
 
 const SEED_MACHINERY = [
@@ -278,7 +291,7 @@ async function seedDb(db) {
   let seededFarms = false
   if (farmCount === 0) {
     const now = new Date()
-    const farms = SEED_FARMS.map((farm) => ({ id: uuidv4(), ...farm, createdAt: now }))
+    const farms = SEED_FARMS.map((farm) => ({ ...farm, createdAt: now }))
     await farmsCol.insertMany(farms)
     seededFarms = true
   }
@@ -291,6 +304,16 @@ async function seedDb(db) {
   if (await metricsCol.countDocuments() === 0) {
     const metrics = Object.entries(DISTRICT_DATA).map(([district, values]) => ({ id: uuidv4(), district, ...values }))
     await metricsCol.insertMany(metrics)
+  }
+  const listingsCol = db.collection('marketplace_listings')
+  if (await listingsCol.countDocuments() === 0) {
+    const now = new Date()
+    await listingsCol.insertMany([
+      { id: '00000000-0000-4000-8000-000000000101', sellerId: 'seller-patiala@agrovani.in', sellerName: 'Patiala Seed & Residue Co-op', sellerState: 'Punjab', sellerPlace: 'Patiala', name: 'Paddy straw bales', category: 'Residue', priceInr: 4200, stockUnits: 120, status: 'active', expectedDeliveryDays: 3, createdAt: now, updatedAt: now },
+      { id: '00000000-0000-4000-8000-000000000102', sellerId: 'seller-ludhiana@agrovani.in', sellerName: 'Ludhiana Farm Collective', sellerState: 'Punjab', sellerPlace: 'Ludhiana', name: 'Wheat straw bundles', category: 'Residue', priceInr: 3900, stockUnits: 90, status: 'active', expectedDeliveryDays: 4, createdAt: now, updatedAt: now },
+      { id: '00000000-0000-4000-8000-000000000103', sellerId: 'seller-indore@agrovani.in', sellerName: 'Malwa Biomass Network', sellerState: 'Madhya Pradesh', sellerPlace: 'Indore', name: 'Soybean residue loads', category: 'Residue', priceInr: 4600, stockUnits: 75, status: 'active', expectedDeliveryDays: 6, createdAt: now, updatedAt: now },
+      { id: '00000000-0000-4000-8000-000000000104', sellerId: 'seller-nagpur@agrovani.in', sellerName: 'Vidarbha Crop Circle', sellerState: 'Maharashtra', sellerPlace: 'Nagpur', name: 'Cotton stalk bundles', category: 'Residue', priceInr: 3500, stockUnits: 60, status: 'active', expectedDeliveryDays: 7, createdAt: now, updatedAt: now },
+    ])
   }
   return { seeded: seededFarms, referenceDataReady: true }
 }
@@ -485,6 +508,70 @@ async function handleRoute(request, { params }) {
       return ok({ products, count: products.length })
     }
 
+    if (route === '/mandi' && method === 'GET') {
+      return ok(lookupMandiPrices({
+        commodity: searchParams.get('commodity') || '',
+        state: searchParams.get('state') || '',
+        market: searchParams.get('market') || '',
+      }))
+    }
+
+    if (route === '/msp' && method === 'GET') {
+      const commodity = searchParams.get('commodity') || ''
+      const modalPrice = searchParams.get('modalPrice')
+      return ok(compareMsp({ commodity, modalPrice: modalPrice == null ? null : Number(modalPrice) }))
+    }
+
+    if (route === '/yield-prediction' && method === 'POST') {
+      const body = await request.json()
+      if (!body.crop || Number(body.areaInAcres) <= 0) return ok({ error: 'crop and a positive areaInAcres are required' }, 400)
+      return ok(predictYield(body))
+    }
+
+    if (route === '/report/whatsapp' && method === 'POST') {
+      return ok({ text: createWhatsAppText(await request.json()) })
+    }
+
+    if (route === '/report/pdf' && method === 'POST') {
+      return pdf(buildFarmReportPdf(await request.json()))
+    }
+
+    if (route === '/payments/razorpay/order' && method === 'POST') {
+      if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+        return ok({ error: 'Razorpay is not configured. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.' }, 503)
+      }
+      const body = await request.json()
+      const plan = plans.find((item) => item.id === body.planId)
+      if (!plan) return ok({ error: 'Unknown pricing plan' }, 400)
+      if (plan.priceInr <= 0) return ok({ error: 'This plan does not require payment' }, 400)
+
+      const razorpayResponse = await fetch('https://api.razorpay.com/v1/orders', {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: plan.priceInr * 100,
+          currency: 'INR',
+          receipt: `agrovani-${plan.id}-${Date.now()}`.slice(0, 40),
+          notes: { planId: plan.id, userEmail: body.userEmail || '', userRole: body.userRole || '' },
+        }),
+      })
+      const order = await razorpayResponse.json().catch(() => ({}))
+      if (!razorpayResponse.ok || !order.id) return ok({ error: order.error?.description || 'Razorpay order creation failed' }, 502)
+      return ok({ orderId: order.id, amount: order.amount, currency: order.currency, keyId: process.env.RAZORPAY_KEY_ID, planId: plan.id })
+    }
+
+    if (route === '/payments/razorpay/verify' && method === 'POST') {
+      if (!process.env.RAZORPAY_KEY_SECRET) return ok({ error: 'Razorpay is not configured.' }, 503)
+      const body = await request.json()
+      const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = body
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) return ok({ error: 'Incomplete Razorpay payment details' }, 400)
+      const expected = createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${razorpayOrderId}|${razorpayPaymentId}`).digest('hex')
+      const valid = expected.length === razorpaySignature.length && timingSafeEqual(Buffer.from(expected), Buffer.from(razorpaySignature))
+      if (!valid) return ok({ error: 'Invalid Razorpay payment signature' }, 400)
+      return ok({ verified: true, paymentId: razorpayPaymentId, orderId: razorpayOrderId, planId: body.planId || null })
     if (route === '/recommendations' && method === 'POST') {
       const body = await request.json()
       const crop = body.crop || 'Rice'
@@ -610,7 +697,7 @@ async function handleRoute(request, { params }) {
     if (route === '/farms' && method === 'POST') {
       const body = await request.json()
       const farm = {
-        id: uuidv4(),
+        id: uuidv4(), ownerId: body.ownerId || body.email || null,
         name: body.name || 'Farmer',
         village: body.village || '',
         district: body.district || 'India',
@@ -640,6 +727,59 @@ async function handleRoute(request, { params }) {
       await seedDb(db)
       const farms = await db.collection('farms').find({}).limit(100).toArray()
       return ok(farms.map(({ _id, ...rest }) => rest))
+    }
+
+    if (route === '/buyer/farm-map' && method === 'GET') {
+      await seedDb(db)
+      const farms = await db.collection('farms').find({}).limit(1000).toArray()
+      const uniqueFarms = [...new Map(farms.map((farm) => [farm.id, farm])).values()]
+      return ok({
+        country: 'India',
+        farms: uniqueFarms.filter((farm) => farm.latitude && farm.longitude).map((farm) => ({
+          id: farm.id,
+          district: farm.district,
+          state: farm.state,
+          cropType: farm.cropType,
+          latitude: farm.latitude,
+          longitude: farm.longitude,
+          availability: 'Available for buyer enquiry',
+        })),
+      })
+    }
+
+    if (route === '/buyer/needs' && method === 'GET') {
+      const buyerId = searchParams.get('buyerId') || 'buyer@agrovani.in'
+      const needs = await db.collection('buyer_needs').find({ buyerId }).sort({ createdAt: -1 }).limit(100).toArray()
+      return ok(needs.map(({ _id, ...need }) => need))
+    }
+
+    if (route === '/buyer/needs' && method === 'POST') {
+      const body = await request.json()
+      if (!body.buyerId || !body.cropType || !body.residueType || Number(body.quantity) <= 0) {
+        return ok({ error: 'buyerId, cropType, residueType and a positive quantity are required' }, 400)
+      }
+      const need = {
+        id: uuidv4(),
+        buyerId: body.buyerId,
+        cropType: String(body.cropType).trim(),
+        residueType: String(body.residueType).trim(),
+        quantity: Number(body.quantity),
+        useCase: String(body.useCase || 'Biomass processing').trim(),
+        region: String(body.region || 'India').trim(),
+        urgency: String(body.urgency || 'This month').trim(),
+        notes: String(body.notes || '').trim(),
+        status: 'open',
+        createdAt: new Date(),
+      }
+      await db.collection('buyer_needs').insertOne(need)
+      return ok(need, 201)
+    }
+
+    if (route === '/buyer/sellers' && method === 'GET') {
+      await seedDb(db)
+      const listings = await db.collection('marketplace_listings').find({ status: 'active', category: 'Residue' }).limit(200).toArray()
+      const uniqueListings = [...new Map(listings.map((listing) => [listing.id, listing])).values()]
+      return ok(uniqueListings.map(({ _id, ...listing }) => listing))
     }
 
     if (route === '/agri-loop' && method === 'GET') {
@@ -722,6 +862,8 @@ async function handleRoute(request, { params }) {
       const body = await request.json()
       if (!body.sellerId || !body.name || Number(body.priceInr) <= 0) return ok({ error: 'sellerId, name and a positive price are required' }, 400)
       const listing = {
+        id: uuidv4(), sellerId: body.sellerId, sellerName: body.sellerName || body.sellerId, sellerState: body.sellerState || 'India', sellerPlace: body.sellerPlace || 'India', expectedDeliveryDays: Number(body.expectedDeliveryDays) || 7, name: body.name.trim(), category: body.category || 'Other',
+        priceInr: Number(body.priceInr), stockUnits: Math.max(0, Number(body.stockUnits) || 0), status: 'active',
         id: uuidv4(), sellerId: body.sellerId, name: body.name.trim(), category: body.category || 'Other',
         listingType: body.listingType || 'input', residueType: body.residueType || null, qualityGrade: body.qualityGrade || null,
         moisturePercent: body.moisturePercent != null ? Number(body.moisturePercent) : null, quantityQuintals: body.quantityQuintals != null ? Number(body.quantityQuintals) : null,
@@ -756,7 +898,8 @@ async function handleRoute(request, { params }) {
 
     if (route === '/marketplace/orders' && method === 'GET') {
       const sellerId = searchParams.get('sellerId')
-      const query = sellerId ? { sellerId } : {}
+      const buyerId = searchParams.get('buyerId')
+      const query = sellerId ? { sellerId } : buyerId ? { buyerId } : {}
       const orders = await db.collection('marketplace_orders').find(query).sort({ createdAt: -1 }).limit(200).toArray()
       return ok(orders.map(({ _id, ...rest }) => rest))
     }
@@ -765,7 +908,22 @@ async function handleRoute(request, { params }) {
       const body = await request.json()
       const quantity = Math.max(1, Number(body.quantity) || 1)
       if (!body.sellerId || !body.listingId) return ok({ error: 'sellerId and listingId are required' }, 400)
-      const order = { id: uuidv4(), listingId: body.listingId, farmId: body.farmId || null, sellerId: body.sellerId, quantity, totalInr: Number(body.totalInr) || 0, status: 'new', createdAt: new Date(), updatedAt: new Date() }
+      const listing = await db.collection('marketplace_listings').findOne({ id: body.listingId })
+      if (!listing) return ok({ error: 'Listing not found' }, 404)
+      if (listing.status !== 'active') return ok({ error: 'This listing is no longer active' }, 409)
+      if (Number(listing.stockUnits) < quantity) return ok({ error: `Only ${listing.stockUnits} units remain in this listing` }, 409)
+      listing.stockUnits = Number(listing.stockUnits) - quantity
+      listing.updatedAt = new Date()
+      await db.collection('marketplace_listings').updateOne({ id: listing.id }, { $set: listing })
+      const order = {
+        id: uuidv4(), listingId: body.listingId, farmId: body.farmId || null, buyerId: body.buyerId || null,
+        sellerId: body.sellerId, sellerName: listing.sellerName || body.sellerName || body.sellerId,
+        sellerState: listing.sellerState || body.sellerState || 'India', sellerPlace: listing.sellerPlace || body.sellerPlace || 'India',
+        expectedDeliveryDays: Number(listing.expectedDeliveryDays || body.expectedDeliveryDays || 7),
+        expectedDeliveryAt: new Date(Date.now() + Number(listing.expectedDeliveryDays || body.expectedDeliveryDays || 7) * 86400000),
+        listingName: listing.name, quantity, totalInr: Number(body.totalInr) || Number(listing.priceInr) * quantity,
+        status: 'new', createdAt: new Date(), updatedAt: new Date(),
+      }
       await db.collection('marketplace_orders').insertOne(order)
       return ok(order, 201)
     }
@@ -820,6 +978,10 @@ async function handleRoute(request, { params }) {
       review.reviewedAt = review.status === 'reviewed' ? new Date() : null
       if (db.collection('admin_reviews').updateOne) await db.collection('admin_reviews').updateOne({ id: review.id }, { $set: review })
       return ok(review)
+    }
+
+    if (route === '/weather-map' && method === 'GET') {
+      return ok(await fetchIndiaWeather())
     }
 
     if (route === '/stress' && method === 'GET') {
