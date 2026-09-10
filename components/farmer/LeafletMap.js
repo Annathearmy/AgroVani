@@ -28,8 +28,11 @@ function offset(lat, lon, dLat, dLon) {
   return [lat + dLat, lon + dLon]
 }
 
-export default function LeafletMap({ lat, lon, mode = 'residue', stressScore = 0 }) {
+export default function LeafletMap({ lat, lon, liveLocation, mode = 'residue', stressScore = 0 }) {
   const center = [lat, lon]
+  const liveCenter = liveLocation?.latitude && liveLocation?.longitude
+    ? [liveLocation.latitude, liveLocation.longitude]
+    : center
   const boundary = [
     offset(lat, lon, 0.012, -0.014),
     offset(lat, lon, 0.012, 0.014),
@@ -76,6 +79,10 @@ export default function LeafletMap({ lat, lon, mode = 'residue', stressScore = 0
 
       <Marker position={center} icon={ICONS.blue}>
         <Popup>Your farm</Popup>
+      </Marker>
+
+      <Marker position={liveCenter} icon={ICONS.green}>
+        <Popup>Live driver location · {liveLocation?.status || 'active'}</Popup>
       </Marker>
 
       {markers.map((m, i) => (

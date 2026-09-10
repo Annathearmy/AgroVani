@@ -168,3 +168,59 @@ AgroVani/
 Debayan Paul, Annesha Chakraborty, Ayan Chatterjee and Nikita Bose
 
 Built with passion for sustainable agriculture and rural empowerment.
+
+## Random Forest yield percentage service
+
+The repository includes a Codespaces-ready Flask service under `yield_model/` for the trained Random Forest yield model. Add the trusted artifact at `model/rf_yield_model.joblib`; it must expose `predict()` and accept these feature columns in this exact order:
+
+```text
+soil_pH, nitrogen_ppm, seasonal_rainfall_mm, avg_temp_c, ndvi_peak
+```
+
+Start the service in Codespaces with:
+
+```bash
+python -m pip install -r yield_model/requirements.txt
+python yield_model/app.py
+```
+
+The service is available on port `5000`:
+
+```bash
+curl http://localhost:5000/health
+curl -X POST http://localhost:5000/predict \
+    -H 'Content-Type: application/json' \
+    -d '{"soil_pH":6.5,"nitrogen_ppm":120,"seasonal_rainfall_mm":800,"avg_temp_c":25,"ndvi_peak":0.72}'
+```
+
+The Next.js API exposes the same contract at `POST /api/yield-predict`. Set `YIELD_MODEL_API_URL=http://localhost:5000/predict` locally or to the deployed model service URL. Without that variable, AgroVani returns a clearly labeled bounded heuristic fallback; it never labels the fallback as Random Forest output.
+
+## Spatial 3D and live location tracking
+
+The farm map combines Leaflet for practical map layers with a lightweight React Three Fiber field surface for spatial context. Driver coordinates update in-place through a WebSocket connection; the page does not reload.
+
+Run the location relay locally in a second terminal:
+
+```bash
+npm run location:server
+```
+
+Set this in `.env.local` for the browser:
+
+```text
+NEXT_PUBLIC_LOCATION_WS_URL=ws://localhost:8787
+```
+
+The browser uses a visible simulated stream when the variable is absent, which keeps local demos usable. For production, deploy `server/location-server.js` as a persistent Node service with TLS and set `NEXT_PUBLIC_LOCATION_WS_URL` to its `wss://` URL. Vercel serverless functions are not suitable for holding persistent WebSocket connections; use a managed realtime provider or a separate long-running service for production telemetry.
+
+The telemetry contract is:
+
+```json
+{
+    "type": "location_update",
+    "id": "driver-123",
+    "latitude": 30.34,
+    "longitude": 76.39,
+    "status": "active"
+}
+```

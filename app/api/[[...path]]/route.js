@@ -201,6 +201,45 @@ function buildProductRecommendation({ crop, state, areaInAcres, usedProducts = [
   }
 }
 
+async function createYieldPrediction(body) {
+  const values = {
+    soil_pH: Number(body.soil_pH),
+    nitrogen_ppm: Number(body.nitrogen_ppm),
+    seasonal_rainfall_mm: Number(body.seasonal_rainfall_mm),
+    avg_temp_c: Number(body.avg_temp_c),
+    ndvi_peak: Number(body.ndvi_peak),
+  }
+  if (Object.values(values).some((value) => !Number.isFinite(value))) return ok({ error: 'All yield model features must be finite numbers.' }, 400)
+  if (values.soil_pH < 0 || values.soil_pH > 14 || values.nitrogen_ppm < 0 || values.seasonal_rainfall_mm < 0 || values.ndvi_peak < 0 || values.ndvi_peak > 1) {
+    return ok({ error: 'Yield model inputs are outside the accepted ranges.' }, 400)
+  }
+
+  const modelApiUrl = process.env.YIELD_MODEL_API_URL
+  if (modelApiUrl) {
+    try {
+      const response = await fetch(modelApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+        signal: AbortSignal.timeout(5000),
+      })
+      const data = await response.json()
+      if (!response.ok || data.success === false) return ok({ error: data.error || 'Yield model service failed.' }, 502)
+      return ok({ ...data, source: data.source || 'random_forest_service' })
+    } catch (error) {
+      console.error('Yield model service unavailable:', error.message)
+      return ok({ error: 'Yield model service is unavailable. Start the Codespaces model service or remove YIELD_MODEL_API_URL for local fallback.' }, 503)
+    }
+  }
+
+  const soilScore = Math.max(0, 1 - Math.abs(values.soil_pH - 6.5) / 6.5)
+  const nitrogenScore = Math.min(1, values.nitrogen_ppm / 120)
+  const rainfallScore = Math.max(0, 1 - Math.abs(values.seasonal_rainfall_mm - 800) / 1200)
+  const temperatureScore = Math.max(0, 1 - Math.abs(values.avg_temp_c - 25) / 30)
+  const predictedYield = Math.round(Math.max(0, Math.min(100, (soilScore + nitrogenScore + rainfallScore + temperatureScore + values.ndvi_peak) * 20)) * 100) / 100
+  return ok({ success: true, predicted_yield_percent: predictedYield, source: 'next_fallback_heuristic', features: values })
+}
+
 export async function OPTIONS() {
   return handleCORS(new NextResponse(null, { status: 200 }))
 }
@@ -432,6 +471,10 @@ async function handleRoute(request, { params }) {
         usedProducts: Array.isArray(body.usedProducts) ? body.usedProducts : [],
         diagnostic: body.diagnostic || {},
       }))
+    }
+
+    if (route === '/yield-predict' && method === 'POST') {
+      return createYieldPrediction(await request.json())
     }
 
     const db = await connectToDatabase()

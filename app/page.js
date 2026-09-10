@@ -1,9 +1,11 @@
 'use client'
 
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { Wind, Droplet, Leaf, ArrowRight, Sparkles } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import InstallAppButton from '@/components/InstallAppButton'
+const SpatialFieldScene = dynamic(() => import('@/components/farmer/SpatialFieldScene'), { ssr: false })
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 const impactCards = [
@@ -141,6 +143,9 @@ export default function App() {
               <div><p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">Burn risk</p><p className="mt-1 text-sm font-bold text-emerald-300">Low</p></div>
               <div><p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">Buyer demand</p><p className="mt-1 text-sm font-bold text-amber-300">High</p></div>
               <div><p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">Next crop</p><p className="mt-1 text-sm font-bold text-sky-300">Planned</p></div>
+            </div>
+            <div className="relative mt-4 rounded-[24px] border border-white/20 bg-slate-950/70 p-2">
+              <SpatialFieldScene stressScore={2.4} />
             </div>
           </div>
         </div>
