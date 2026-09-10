@@ -72,6 +72,13 @@ create table if not exists public.marketplace_listings (
   expected_delivery_days integer not null default 7,
   name text not null,
   category text not null,
+  listing_type text not null default 'input',
+  residue_type text,
+  quality_grade text,
+  moisture_percent numeric,
+  quantity_quintals numeric,
+  pickup_district text default '',
+  notes text default '',
   price_inr numeric not null check (price_inr > 0),
   stock_units integer not null default 0 check (stock_units >= 0),
   status text not null default 'active',
@@ -133,6 +140,73 @@ alter table public.marketplace_orders add column if not exists seller_place text
 alter table public.marketplace_orders add column if not exists listing_name text;
 alter table public.marketplace_orders add column if not exists expected_delivery_days integer not null default 7;
 alter table public.marketplace_orders add column if not exists expected_delivery_at timestamptz;
+create table if not exists public.tasks (
+  id uuid primary key default gen_random_uuid(),
+  owner_id text not null,
+  title text not null,
+  instructions text default '',
+  due_date date not null default current_date,
+  status text not null default 'open',
+  source text not null default 'recommendation',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_id text not null,
+  recipient_id text not null,
+  text text not null,
+  source_language text not null default 'en',
+  target_language text not null default 'en',
+  translated_text text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.earnings (
+  id uuid primary key default gen_random_uuid(),
+  owner_id text not null,
+  role text not null,
+  source text not null,
+  amount_inr numeric not null default 0,
+  status text not null default 'pending',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.dispatch (
+  id uuid primary key default gen_random_uuid(),
+  driver_id text not null,
+  farmer_id text,
+  buyer_id text,
+  pickup_location jsonb,
+  drop_location jsonb,
+  status text not null default 'assigned',
+  eta_minutes integer,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  audience text not null,
+  type text not null,
+  title text not null,
+  message text not null,
+  listing_id uuid references public.marketplace_listings(id) on delete cascade,
+  read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.residue_profiles (
+  id uuid primary key default gen_random_uuid(),
+  farm_id uuid references public.farms(id) on delete cascade,
+  residue_type text not null,
+  quality_grade text not null,
+  quantity_quintals numeric not null check (quantity_quintals > 0),
+  moisture_percent numeric,
+  packaging text not null default 'Loose',
+  pickup_ready_date date,
+  notes text default '',
+  updated_at timestamptz not null default now()
+);
 
 alter table public.farms enable row level security;
 alter table public.machinery enable row level security;
@@ -143,3 +217,9 @@ alter table public.marketplace_listings enable row level security;
 alter table public.marketplace_orders enable row level security;
 alter table public.admin_reviews enable row level security;
 alter table public.buyer_needs enable row level security;
+alter table public.tasks enable row level security;
+alter table public.messages enable row level security;
+alter table public.earnings enable row level security;
+alter table public.dispatch enable row level security;
+alter table public.notifications enable row level security;
+alter table public.residue_profiles enable row level security;

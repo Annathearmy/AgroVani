@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { Mic, MicOff } from 'lucide-react'
+import { apiUrl } from '@/lib/api'
 
 export default function LiveKitVoiceAgent({ farmId, locale = 'en', context }) {
   const [recording, setRecording] = useState(false)
@@ -61,7 +62,7 @@ export default function LiveKitVoiceAgent({ farmId, locale = 'en', context }) {
         const reader = new FileReader()
         reader.onload = async () => {
           try {
-            const response = await fetch('/api/assistant/audio', {
+            const response = await fetch(apiUrl('/api/assistant/audio'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ audio: reader.result, mimeType: blob.type || 'audio/webm', farmId: farmId || null, locale, context }),

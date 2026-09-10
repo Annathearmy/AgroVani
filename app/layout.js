@@ -9,6 +9,13 @@ export const metadata = {
   description: 'Clean residue, smarter fields, stronger incomes. Precision residue insights and biostimulant crop-health decisions for Indian farmers.',
 }
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#0b2624',
+}
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={inter.className}>

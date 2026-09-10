@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tractor, CheckCircle2 } from 'lucide-react'
+import { apiUrl } from '@/lib/api'
 
 const MACHINE_TYPES = ['Happy Seeder', 'Baler', 'Mulcher', 'Boom Sprayer']
 
@@ -20,7 +21,7 @@ export default function BookMachineryCard({ farm, defaultType = 'Happy Seeder', 
   async function submit() {
     setLoading(true)
     try {
-      const res = await fetch('/api/bookings', {
+      const res = await fetch(apiUrl('/api/bookings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

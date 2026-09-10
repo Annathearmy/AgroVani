@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, BarChart3, ShieldCheck, Users, Search, CheckCircle2 } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import LiveDriverTracker from '@/components/admin/LiveDriverTracker'
+import { apiUrl } from '@/lib/api'
 
 export default function AdminDashboard() {
   const [overview, setOverview] = useState({ farmers: 0, bookings: 0, diagnostics: 0, districts: [] })
@@ -15,7 +16,7 @@ export default function AdminDashboard() {
   const visibleReviews = useMemo(() => reviews.filter((item) => `${item.farm?.name || ''} ${item.farm?.village || ''} ${item.farm?.state || ''} ${item.reviewType}`.toLowerCase().includes(query.toLowerCase())), [reviews, query])
 
   useEffect(() => {
-    Promise.all([fetch('/api/admin/overview'), fetch('/api/admin/reviews')]).then(async ([overviewResponse, reviewsResponse]) => {
+    Promise.all([fetch(apiUrl('/api/admin/overview')), fetch(apiUrl('/api/admin/reviews'))]).then(async ([overviewResponse, reviewsResponse]) => {
       if (!overviewResponse.ok || !reviewsResponse.ok) throw new Error('Unable to load admin data')
       setOverview(await overviewResponse.json())
       setReviews(await reviewsResponse.json())
@@ -23,7 +24,7 @@ export default function AdminDashboard() {
   }, [])
 
   function markReviewed(id) {
-    fetch('/api/admin/reviews', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status: 'reviewed' }) }).then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Unable to update review'); setReviews((items) => items.map((item) => item.id === id ? { ...item, ...data } : item)) }).catch((updateError) => setError(updateError.message))
+    fetch(apiUrl('/api/admin/reviews'), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status: 'reviewed' }) }).then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Unable to update review'); setReviews((items) => items.map((item) => item.id === id ? { ...item, ...data } : item)) }).catch((updateError) => setError(updateError.message))
   }
 
   return (

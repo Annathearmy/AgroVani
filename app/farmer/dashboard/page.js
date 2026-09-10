@@ -9,9 +9,12 @@ import BookMachineryCard from '@/components/farmer/BookMachineryCard'
 import LiveKitVoiceAgent from '@/components/farmer/LiveKitVoiceAgent'
 import RazorpayButton from '@/components/RazorpayButton'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import InstallAppButton from '@/components/InstallAppButton'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 import { getRecommendationCopy } from '@/lib/i18n/recommendation'
 import { plans } from '@/lib/data/plans'
+import { apiUrl } from '@/lib/api'
+import SupportDock from '@/components/SupportDock'
 import {
   Wheat, FlaskConical, ArrowLeft, TrendingUp, Sun, Moon, Snowflake,
   Droplets, Sparkles, Clock, Mic, Camera, IndianRupee, AlertTriangle, Loader2, X,
@@ -62,7 +65,16 @@ export default function App() {
   const [machinery, setMachinery] = useState([])
   const [loading, setLoading] = useState(false)
   const [marketplaceListings, setMarketplaceListings] = useState([])
+  const [buyerNotifications, setBuyerNotifications] = useState([])
+  const [residueProfile, setResidueProfile] = useState({ residueType: 'Paddy straw', qualityGrade: 'Standard', quantityQuintals: '', moisturePercent: '', packaging: 'Loose', pickupReadyDate: '', notes: '' })
+  const [residueSaveMessage, setResidueSaveMessage] = useState('')
   const [marketplaceMessage, setMarketplaceMessage] = useState('')
+  const [availableProducts, setAvailableProducts] = useState([])
+  const [usedProducts, setUsedProducts] = useState([])
+  const [productSearch, setProductSearch] = useState('')
+  const [productRecommendation, setProductRecommendation] = useState(null)
+  const [recommendationLoading, setRecommendationLoading] = useState(false)
+  const [recommendationError, setRecommendationError] = useState('')
   const [chatMessages, setChatMessages] = useState([
     { role: 'assistant', text: 'Hello farmer! I am AgroSaathi. I can track your crop cycle, residue plan, and logistics status.' },
   ])
@@ -116,6 +128,40 @@ export default function App() {
     return new Intl.DateTimeFormat(locale === 'hi' ? 'hi-IN' : locale === 'pa' ? 'pa-IN' : 'en-IN', {
       month: 'short', day: 'numeric',
     }).format(date)
+  }
+
+  function toggleUsedProduct(productName) {
+    setUsedProducts((current) => {
+      const next = current.includes(productName) ? current.filter((name) => name !== productName) : [...current, productName]
+      if (farm && typeof window !== 'undefined') localStorage.setItem(`agrovani_used_products_${farm.id}`, JSON.stringify(next))
+      return next
+    })
+  }
+
+  async function getProductRecommendation() {
+    if (!farm) return
+    setRecommendationLoading(true)
+    setRecommendationError('')
+    try {
+      const response = await fetch(apiUrl('/api/recommendations'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          crop: farm.cropType,
+          state: farm.state,
+          areaInAcres: farm.areaInAcres,
+          usedProducts,
+          diagnostic: stress?.diagnostic || {},
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok || data.error) throw new Error(data.error || 'Recommendation unavailable')
+      setProductRecommendation(data)
+    } catch (error) {
+      setRecommendationError(error.message || 'Recommendation unavailable')
+    } finally {
+      setRecommendationLoading(false)
+    }
   }
 
   function stopVoice() {
@@ -174,7 +220,7 @@ export default function App() {
         const reader = new FileReader()
         reader.onload = async () => {
           try {
-            const response = await fetch('/api/assistant/audio', {
+            const response = await fetch(apiUrl('/api/assistant/audio'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -240,7 +286,7 @@ export default function App() {
       const reader = new FileReader()
       reader.onload = async () => {
         try {
-          const response = await fetch('/api/crop-diagnose', {
+            const response = await fetch(apiUrl('/api/crop-diagnose'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -309,7 +355,7 @@ export default function App() {
 
     async function loadFarms() {
       try {
-        let res = await fetch('/api/farms')
+        let res = await fetch(apiUrl('/api/farms'))
         let list = await res.json()
         if (!res.ok || !Array.isArray(list)) throw new Error(list.error || 'Unable to load farms')
         const farmsArr = Array.isArray(list) ? list : []
@@ -333,8 +379,27 @@ export default function App() {
     setAgriLoop(null)
     setMarketplaceListings([])
     setMarketplaceMessage('')
+    setProductRecommendation(null)
+    setRecommendationError('')
+    try {
+      const savedProducts = JSON.parse(localStorage.getItem(`agrovani_used_products_${f.id}`) || '[]')
+      setUsedProducts(Array.isArray(savedProducts) ? savedProducts : [])
+    } catch {
+      setUsedProducts([])
+    }
 
-    fetch(`/api/residue?farmId=${f.id}`)
+    fetch(apiUrl(`/api/products?crop=${encodeURIComponent(f.cropType || 'Rice')}`))
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok || !Array.isArray(data.products)) throw new Error(data.error || 'Product catalog unavailable')
+        setAvailableProducts(data.products)
+      })
+      .catch((error) => {
+        console.error('Product catalog loading failed:', error)
+        setAvailableProducts([])
+      })
+
+    fetch(apiUrl(`/api/residue?farmId=${f.id}`))
       .then(async (r) => {
         const data = await r.json()
         if (!r.ok || data.error) throw new Error(data.error || 'Residue data unavailable')
@@ -343,7 +408,7 @@ export default function App() {
       })
       .then(async (data) => {
         const orderValue = Number(data?.totalValueINR || 100000)
-        const response = await fetch(`/api/agri-loop?farmId=${f.id}&orderValue=${encodeURIComponent(orderValue)}`)
+        const response = await fetch(apiUrl(`/api/agri-loop?farmId=${f.id}&orderValue=${encodeURIComponent(orderValue)}`))
         const agriData = await response.json()
         if (!response.ok || agriData.error) throw new Error(agriData.error || 'Agri loop data unavailable')
         setAgriLoop(agriData)
@@ -351,7 +416,9 @@ export default function App() {
       })
       .catch((error) => console.error('Agri loop loading failed:', error))
 
-    fetch(`/api/machinery?district=${encodeURIComponent(f.district || '')}`)
+    fetch(apiUrl(`/api/residue/profile?farmId=${f.id}`)).then((r) => r.json()).then((profile) => { if (profile?.farmId) setResidueProfile((current) => ({ ...current, ...profile })) }).catch(() => {})
+
+    fetch(apiUrl(`/api/machinery?district=${encodeURIComponent(f.district || '')}`))
       .then(async (r) => {
         const data = await r.json()
         if (!r.ok || !Array.isArray(data)) throw new Error(data.error || 'Machinery data unavailable')
@@ -363,7 +430,7 @@ export default function App() {
         setMachinery([])
       })
 
-    fetch('/api/marketplace/listings')
+    fetch(apiUrl('/api/marketplace/listings'))
       .then(async (r) => {
         const data = await r.json()
         if (!r.ok || !Array.isArray(data)) throw new Error(data.error || 'Marketplace listings unavailable')
@@ -371,7 +438,11 @@ export default function App() {
       })
       .catch((error) => console.error('Marketplace loading failed:', error))
 
-    fetch(`/api/stress?farmId=${f.id}`)
+    fetch(apiUrl('/api/notifications?audience=farmer'))
+      .then(async (r) => { const data = await r.json(); if (!r.ok || !Array.isArray(data)) throw new Error(data.error || 'Notifications unavailable'); setBuyerNotifications(data) })
+      .catch((error) => console.error('Buyer notification loading failed:', error))
+
+    fetch(apiUrl(`/api/stress?farmId=${f.id}`))
       .then(async (r) => {
         const data = await r.json()
         if (!r.ok || data.error) throw new Error(data.error || 'Stress data unavailable')
@@ -394,7 +465,7 @@ export default function App() {
     }
 
     try {
-      const response = await fetch('/api/marketplace/orders', {
+      const response = await fetch(apiUrl('/api/marketplace/orders'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -420,6 +491,15 @@ export default function App() {
     } catch (error) {
       setMarketplaceMessage(error.message || 'Unable to place order')
     }
+  }
+
+  async function saveResidueProfile(event) {
+    event.preventDefault()
+    if (!farm) return
+    const response = await fetch(apiUrl('/api/residue/profile'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...residueProfile, farmId: farm.id }) })
+    const data = await response.json()
+    setResidueSaveMessage(response.ok ? 'Residue details updated for buyers.' : data.error || 'Unable to update residue details')
+    if (response.ok) setResidueProfile((current) => ({ ...current, ...data }))
   }
 
   useEffect(() => { if (farm) loadData(farm) }, [farm, loadData])
@@ -453,8 +533,13 @@ export default function App() {
     { source: 'Farmer field', note: `Field conditions: ${stress?.diagnostic?.scores ? 'stress monitored' : 'stable'}`, tone: 'emerald' },
     { source: 'Seller network', note: `Marketplace demand: ${marketplaceListings.length ? `${marketplaceListings.length} active offers` : 'waiting for buyer demand'}`, tone: 'amber' },
     { source: 'Driver fleet', note: `Pickup queues: ${marketplaceListings.length ? '3 trips aligned' : 'route setup live'}`, tone: 'violet' },
-    { source: 'ML forecast', note: `Crop cycle confidence: ${cropTimeline[0]?.confidence || 88}% and residue plan aligned`, tone: 'sky' },
+    { source: 'Weather signal', note: `Crop cycle confidence: ${cropTimeline[0]?.confidence || 88}% based on live weather and field context`, tone: 'sky' },
   ], [cropTimeline, marketplaceListings.length, stress])
+
+  const filteredProducts = useMemo(() => {
+    const query = productSearch.trim().toLowerCase()
+    return availableProducts.filter((product) => !query || `${product.name} ${product.type} ${product.category} ${product.targets}`.toLowerCase().includes(query))
+  }, [availableProducts, productSearch])
 
   async function sendAgroSaathiMessage(event) {
     event.preventDefault()
@@ -467,7 +552,7 @@ export default function App() {
     setChatBusy(true)
 
     try {
-      const response = await fetch('/api/assistant', {
+      const response = await fetch(apiUrl('/api/assistant'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -495,13 +580,11 @@ export default function App() {
             <Link href="/" className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
               <ArrowLeft className="h-4 w-4" /> AgroVani
             </Link>
-            <LanguageSwitcher />
+            <div className="flex flex-wrap items-center gap-2"><Link href="/farmer/weather" className="glass-btn">Live weather</Link><Link href="/farmer/operations" className="glass-btn">Operations</Link><Link href="/plans" className="glass-btn">Our Plans</Link><LanguageSwitcher /><InstallAppButton compact /></div>
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
               <div className="inline-flex rounded-full border border-white/80 bg-white/70 p-1 shadow-[0_8px_20px_rgba(0,0,0,0.05)] backdrop-blur-md">
-                <button onClick={() => setTab('residue')} className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${tab === 'residue' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'}`}>
-                  <Wheat className="h-4 w-4" /> {copy.residueTab}
-                </button>
+                <Link href="/farmer/operations" className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-900"><Wheat className="h-4 w-4" /> Operations</Link>
                 <button onClick={() => setTab('crop')} className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${tab === 'crop' ? 'bg-[#006a42] text-white shadow-md shadow-emerald-600/20' : 'text-slate-600 hover:text-slate-900'}`}>
                   <FlaskConical className="h-4 w-4" /> Live Weather
                 </button>
@@ -530,6 +613,10 @@ export default function App() {
 
           {tab === 'residue' && (
             <div className="grid gap-6 lg:grid-cols-3">
+              <form onSubmit={saveResidueProfile} className="glass-card card-3d lg:col-span-3">
+                <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">Residue supply update</p><h2 className="mt-2 text-2xl font-bold text-slate-900">Tell buyers what your field has</h2></div>{residueSaveMessage && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">{residueSaveMessage}</span>}</div>
+                <div className="mt-5 grid gap-3 md:grid-cols-3"><select value={residueProfile.residueType} onChange={(event) => setResidueProfile({ ...residueProfile, residueType: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option>Paddy straw</option><option>Wheat straw</option><option>Corn residue</option><option>Cotton stalk</option><option>Mixed biomass</option></select><select value={residueProfile.qualityGrade} onChange={(event) => setResidueProfile({ ...residueProfile, qualityGrade: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option>Standard</option><option>Premium</option><option>Industrial</option></select><input required type="number" min="0.1" step="0.1" value={residueProfile.quantityQuintals} onChange={(event) => setResidueProfile({ ...residueProfile, quantityQuintals: event.target.value })} placeholder="Quantity (quintals)" className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm" /><input type="number" min="0" max="100" step="0.1" value={residueProfile.moisturePercent} onChange={(event) => setResidueProfile({ ...residueProfile, moisturePercent: event.target.value })} placeholder="Moisture %" className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm" /><select value={residueProfile.packaging} onChange={(event) => setResidueProfile({ ...residueProfile, packaging: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option>Loose</option><option>Baled</option><option>Bagged</option></select><input type="date" value={residueProfile.pickupReadyDate} onChange={(event) => setResidueProfile({ ...residueProfile, pickupReadyDate: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm" /><textarea value={residueProfile.notes} onChange={(event) => setResidueProfile({ ...residueProfile, notes: event.target.value })} placeholder="Quality notes, contamination, access or pickup instructions" className="min-h-20 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm md:col-span-2" /><button className="pill-dark">Update residue availability</button></div>
+              </form>
               <div className="glass-card card-3d">
                 <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">{copy.residueForecast}</p>
                 <p className="mt-4 text-5xl font-bold tracking-tight text-slate-900">{residue ? (residue.residueTons / (farm?.areaInAcres || 1)).toFixed(1) : '—'} <span className="text-lg font-medium text-slate-500">t/acre</span></p>
@@ -582,6 +669,8 @@ export default function App() {
                   <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">AgriLoop buyers</span>
                 </div>
 
+                {buyerNotifications.length > 0 && <div className="mt-4 space-y-2">{buyerNotifications.slice(0, 3).map((notification) => <div key={notification.id} className="flex items-start justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900"><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">New buyer requirement</p><p className="mt-1 text-sm font-semibold">{notification.message}</p></div><button type="button" onClick={() => { fetch(apiUrl('/api/notifications'), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: notification.id }) }).catch(() => {}); setBuyerNotifications((items) => items.filter((item) => item.id !== notification.id)) }} className="text-xs font-semibold text-amber-700">Dismiss</button></div>)}</div>}
+
                 {marketplaceMessage && (
                   <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{marketplaceMessage}</div>
                 )}
@@ -611,7 +700,7 @@ export default function App() {
               <div className="glass-card card-3d lg:col-span-3">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">ML crop cycle</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">Crop cycle planner</p>
                     <h3 className="mt-2 text-2xl font-bold text-slate-900">Farmer timeline and live side updates</h3>
                   </div>
                   <span className="badge-green">{cropTimeline[0]?.confidence || 88}% model confidence</span>
@@ -621,7 +710,7 @@ export default function App() {
                   <div className="rounded-[26px] border border-slate-200 bg-white/80 p-5 shadow-sm">
                     <div className="mb-5 flex items-center justify-between">
                       <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">Crop life cycle</p>
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">ML synced</span>
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">Field guidance synced</span>
                     </div>
 
                     <div className="space-y-4">
@@ -883,6 +972,48 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="glass-card card-3d">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-sky-600">Crop input history</p>
+                    <h3 className="mt-2 text-2xl font-bold text-slate-900">Tell AgroVani what you already used</h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Select products applied to this {farm?.cropType || 'crop'}. The recommendation API will avoid blind repeats and use current stress signals before suggesting the next step.</p>
+                  </div>
+                  <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">{usedProducts.length} selected</span>
+                </div>
+
+                <div className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+                  <div className="rounded-[24px] border border-slate-200 bg-white/80 p-4">
+                    <input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Search product, type, or target" className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:bg-white" />
+                    <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                      {filteredProducts.map((product) => (
+                        <label key={product.name} className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition ${usedProducts.includes(product.name) ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-slate-50 hover:bg-white'}`}>
+                          <input type="checkbox" checked={usedProducts.includes(product.name)} onChange={() => toggleUsedProduct(product.name)} className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+                          <span className="min-w-0"><span className="block text-sm font-semibold text-slate-900">{product.name}</span><span className="mt-1 block text-[11px] leading-4 text-slate-500">{product.type} · {product.category}</span></span>
+                        </label>
+                      ))}
+                      {!filteredProducts.length && <p className="col-span-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No catalog products match this search.</p>}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-900 p-5 text-white">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-sky-300">Customized recommendation</p>
+                    <p className="mt-3 text-sm leading-6 text-slate-300">Uses selected product history, crop, acreage, state, and live weather stress. Results are guidance, not a chemical prescription.</p>
+                    <button type="button" onClick={getProductRecommendation} disabled={recommendationLoading || !farm} className="mt-4 w-full rounded-full bg-sky-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60">{recommendationLoading ? 'Checking field history...' : 'Get customized recommendation'}</button>
+                    {recommendationError && <p role="alert" className="mt-3 rounded-xl bg-red-500/15 px-3 py-2 text-xs text-red-200">{recommendationError}</p>}
+                    {productRecommendation?.recommendation && (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-4">
+                        <p className="text-lg font-bold text-white">{productRecommendation.recommendation.name}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-sky-200">{productRecommendation.recommendation.type} · {productRecommendation.recommendation.category}</p>
+                        <p className="mt-3 text-sm leading-6 text-slate-200">{productRecommendation.rationale}</p>
+                        <p className="mt-3 text-xs leading-5 text-amber-200">{productRecommendation.safety}</p>
+                        {productRecommendation.alternatives?.length > 0 && <p className="mt-3 text-xs text-slate-300">Alternatives: {productRecommendation.alternatives.map((item) => item.name).join(', ')}</p>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="glass-card">
                   <div className="flex items-center gap-2 text-slate-900"><Mic className="h-5 w-5 text-emerald-600" /><h3 className="text-xl font-semibold">Live Voice Advisory</h3></div>
@@ -932,6 +1063,7 @@ export default function App() {
               </div>
 
               <WeatherMapCard />
+              <FarmMapCard lat={farm?.latitude} lon={farm?.longitude} mode="crop" stressScore={Math.max(diag?.scores?.diurnal || 0, diag?.scores?.night || 0)} title="Live Crop Position Tracking" />
             </div>
           )}
 
@@ -985,6 +1117,7 @@ export default function App() {
           )}
         </div>
       </main>
+      <SupportDock role="farmer" locale={locale} context={{ farm: farm?.cropType, stress, residue }} />
     </DebugBoundary>
   )
 }

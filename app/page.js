@@ -2,7 +2,11 @@
 
 import Link from 'next/link'
 import { Wind, Droplet, Leaf, ArrowRight, Sparkles, Sprout } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { Wind, Droplet, Leaf, ArrowRight, Sparkles } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import InstallAppButton from '@/components/InstallAppButton'
+const SpatialFieldScene = dynamic(() => import('@/components/farmer/SpatialFieldSceneClient'), { ssr: false })
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 import { seedCatalog } from '@/lib/data/seedCatalog'
 
@@ -37,6 +41,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            <InstallAppButton compact />
             <LanguageSwitcher />
           </div>
         </div>
@@ -122,6 +127,9 @@ export default function App() {
               <div><p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">Buyer demand</p><p className="mt-1 text-sm font-bold text-amber-300">High</p></div>
               <div><p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">Next crop</p><p className="mt-1 text-sm font-bold text-sky-300">Planned</p></div>
             </div>
+            <div className="relative mt-4 rounded-[24px] border border-white/20 bg-slate-950/70 p-2">
+              <SpatialFieldScene stressScore={2.4} />
+            </div>
           </div>
         </div>
       </section>
@@ -131,6 +139,99 @@ export default function App() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div><div className="flex items-center gap-3 text-emerald-700"><Sprout className="h-6 w-6" /><p className="text-[10px] font-bold uppercase tracking-[0.3em]">Seed marketplace</p></div><h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">Start with the right seed</h2><p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">Explore trusted seed varieties for rice, wheat, maize, cotton, mustard and vegetables.</p></div>
             <Link href="/login" className="pill-dark">Shop seeds <ArrowRight className="ml-2 h-4 w-4" /></Link>
+        <div className="glass-card relative overflow-hidden border border-emerald-100/70 bg-white/75">
+          <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-r from-emerald-300/20 via-emerald-100/10 to-sky-300/20" />
+          <div className="relative">
+            <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-600">AgriLoop</p>
+                <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">Live Crop Position Tracking for residue-first farming</h2>
+              </div>
+              <span className="badge-green">12–22% embedded incentives</span>
+            </div>
+
+            <div className="mt-8 grid gap-6 lg:grid-cols-[1.05fr_1.3fr]">
+              <div className="rounded-[28px] border border-emerald-100 bg-emerald-50/90 p-5 shadow-[0_20px_45px_rgba(16,185,129,0.08)]">
+                <div className="flex items-center justify-between text-sm text-slate-700">
+                  <span className="rounded-full bg-white px-3 py-1 font-semibold text-emerald-700">Seed seller</span>
+                  <ArrowRight className="h-4 w-4 text-slate-400" />
+                  <span className="rounded-full bg-white px-3 py-1 font-semibold text-emerald-700">Driver</span>
+                  <ArrowRight className="h-4 w-4 text-slate-400" />
+                  <span className="rounded-full bg-white px-3 py-1 font-semibold text-emerald-700">Farmer</span>
+                </div>
+
+                <div className="mt-6 space-y-4">
+                  <div className="route-panel rounded-[24px] border border-white/80 bg-white/80 p-4">
+                    <div className="flex items-center justify-between text-xs font-bold uppercase tracking-[0.22em] text-slate-500">
+                      <span>Live route</span>
+                      <span className="text-emerald-600">Tracking</span>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="dot-green h-3 w-3 rounded-full" />
+                        <span className="text-sm font-medium text-slate-700">Seed co-op</span>
+                      </div>
+                      <span className="text-sm text-slate-500">7.2 km</span>
+                    </div>
+                    <div className="route-line my-4" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="dot-amber h-3 w-3 rounded-full" />
+                        <span className="text-sm font-medium text-slate-700">Farmer field</span>
+                      </div>
+                      <span className="text-sm text-slate-500">On schedule</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[22px] border border-white/80 bg-white/80 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Circular loop</p>
+                    <div className="mt-4 grid gap-3 text-sm text-slate-700">
+                      <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"><span>Seeds</span><span>Input + discount</span></div>
+                      <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"><span>Residue</span><span>Collection + value</span></div>
+                      <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"><span>Drivers</span><span>Pickup + logistics</span></div>
+                      <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"><span>Buyback</span><span>Compost + reuse</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {residueSignals.map((signal) => (
+                    <div key={signal.label} className="rounded-[22px] border border-slate-200 bg-white p-5 shadow-sm">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">{signal.label}</p>
+                      <p className="mt-4 text-2xl font-bold tracking-tight text-slate-900">{signal.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">Live driver fleet</p>
+                      <h3 className="mt-2 text-2xl font-bold text-slate-900">Ready to dispatch</h3>
+                    </div>
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">12 active</span>
+                  </div>
+
+                  <div className="mt-5 space-y-3">
+                    {driverFleet.map((driver) => (
+                      <div key={driver.name} className="driver-card flex items-center justify-between rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                          <p className="text-base font-semibold text-slate-900">{driver.name}</p>
+                          <p className="text-xs text-slate-500">{driver.status}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">ETA</p>
+                          <p className="mt-1 text-base font-semibold text-emerald-700">{driver.eta}</p>
+                          <p className="text-xs text-slate-500">{driver.load}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {seedCatalog.map((seed) => <div key={seed.name} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><div className="flex items-center justify-between gap-3"><p className="font-bold text-slate-900">{seed.name}</p><span className="text-xs font-semibold text-emerald-700">{seed.crop}</span></div><p className="mt-2 text-sm text-slate-600">{seed.note}</p></div>)}

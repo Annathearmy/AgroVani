@@ -7,6 +7,8 @@ import LanguageSwitcher from '@/components/LanguageSwitcher'
 import { seedCatalog } from '@/lib/data/seedCatalog'
 import RazorpayButton from '@/components/RazorpayButton'
 import { plans } from '@/lib/data/plans'
+import { apiUrl } from '@/lib/api'
+import SupportDock from '@/components/SupportDock'
 
 export default function SellerDashboard() {
   const [listings, setListings] = useState([])
@@ -18,6 +20,7 @@ export default function SellerDashboard() {
   const [category, setCategory] = useState('All')
   const [showForm, setShowForm] = useState(false)
   const [draft, setDraft] = useState({ name: '', category: 'Seeds', stock: 1, price: '' })
+  const [draft, setDraft] = useState({ name: '', category: 'Biostimulant', stock: 1, price: '', residueType: '', qualityGrade: '', moisturePercent: '', quantityQuintals: '', pickupDistrict: '', notes: '' })
 
   const filteredListings = useMemo(() => listings.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()) && (category === 'All' || item.category === category)), [listings, query, category])
   const inventory = listings.reduce((sum, item) => sum + Number(item.stockUnits || 0), 0)
@@ -54,7 +57,7 @@ export default function SellerDashboard() {
     const user = JSON.parse(localStorage.getItem('agrovani_user') || '{}')
     const currentSeller = user.email || 'seller@agrovani.in'
     setSellerId(currentSeller)
-    Promise.all([fetch(`/api/marketplace/listings?sellerId=${encodeURIComponent(currentSeller)}`), fetch(`/api/marketplace/orders?sellerId=${encodeURIComponent(currentSeller)}`)])
+    Promise.all([fetch(apiUrl(`/api/marketplace/listings?sellerId=${encodeURIComponent(currentSeller)}`)), fetch(apiUrl(`/api/marketplace/orders?sellerId=${encodeURIComponent(currentSeller)}`))])
       .then(async ([listingResponse, orderResponse]) => {
         if (!listingResponse.ok || !orderResponse.ok) throw new Error('Unable to load seller data')
         setListings(await listingResponse.json())
@@ -69,13 +72,15 @@ export default function SellerDashboard() {
     if (!draft.name || !draft.price) return
     fetch('/api/marketplace/listings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sellerId, name: draft.name, category: draft.category, stockUnits: draft.stock, priceInr: draft.price }) })
       .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Unable to publish listing'); setListings((items) => [data, ...items]); setDraft({ name: '', category: 'Seeds', stock: 1, price: '' }); setShowForm(false) })
+    fetch(apiUrl('/api/marketplace/listings'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sellerId, name: draft.name, category: draft.category, stockUnits: draft.stock, priceInr: draft.price, residueType: draft.residueType, qualityGrade: draft.qualityGrade, moisturePercent: draft.moisturePercent, quantityQuintals: draft.quantityQuintals, pickupDistrict: draft.pickupDistrict, notes: draft.notes }) })
+      .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Unable to publish listing'); setListings((items) => [data, ...items]); setDraft({ name: '', category: 'Biostimulant', stock: 1, price: '' }); setShowForm(false) })
       .catch((saveError) => setError(saveError.message))
   }
 
   function advanceOrder(id) {
     const order = orders.find((item) => item.id === id)
     const nextStatus = order?.status === 'new' ? 'packed' : order?.status === 'packed' ? 'out_for_delivery' : 'delivered'
-    fetch('/api/marketplace/orders', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status: nextStatus }) })
+    fetch(apiUrl('/api/marketplace/orders'), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status: nextStatus }) })
       .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Unable to update order'); setOrders((items) => items.map((item) => item.id === id ? data : item)) })
       .catch((updateError) => setError(updateError.message))
   }
@@ -215,6 +220,7 @@ export default function SellerDashboard() {
           </div>
         </section>
       </div>
+      <SupportDock role="seller" />
     </main>
   )
 }

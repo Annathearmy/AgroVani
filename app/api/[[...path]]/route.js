@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server'
 import { AccessToken } from 'livekit-server-sdk'
 import { fetchWeather } from '@/lib/adapters/weather'
 import { fetchSprayWindow, fetchHydricStress, geocodeLocation } from '@/lib/adapters/cehub'
-import { computeStressDiagnostic, computeFarmEconomics, CROP_LIST, PRODUCT_CATALOG } from '@/lib/calculations/cropRecommendation'
+import { computeStressDiagnostic, computeFarmEconomics, CROP_LIST, PRODUCT_CATALOG, recommendProduct } from '@/lib/calculations/cropRecommendation'
 import { computeResidue, computeFieldReadiness, DISTRICT_DATA, getDistrictData } from '@/lib/calculations/residueRecommendation'
 import { calculateIncentivePlan, buildCropCalendar, calculateYieldProjection } from '@/lib/calculations/agriLoop'
 import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/ai/gemini'
@@ -16,16 +16,18 @@ import { buildFarmReportPdf, createWhatsAppText } from '@/lib/services/reportSer
 import { fetchIndiaWeather } from '@/lib/adapters/cloudNextWeather'
 import { plans } from '@/lib/data/plans'
 
-let client
-let db
-let memoryDb = null
-let supabaseDb = null
+const runtimeStore = globalThis
+let client = runtimeStore.__agrovaniMongoClient || null
+let db = runtimeStore.__agrovaniMongoDb || null
+let memoryDb = runtimeStore.__agrovaniMemoryDb || null
+let supabaseDb = runtimeStore.__agrovaniSupabaseDb || null
 
 function createMemoryCollection(initialRows = []) {
   const rows = [...initialRows]
 
   const makeQueryMatcher = (query = {}) => (row) => Object.entries(query).every(([key, value]) => {
     if (value === undefined) return true
+    if (value && typeof value === 'object' && Array.isArray(value.$in)) return value.$in.includes(row[key])
     if (value && typeof value === 'object' && !Array.isArray(value)) {
     if (Array.isArray(value.$in)) return value.$in.includes(row[key])
       return Object.entries(value).every(([nestedKey, nestedValue]) => {
@@ -105,6 +107,12 @@ function createMemoryDb() {
     marketplace_orders: createMemoryCollection(),
     buyer_needs: createMemoryCollection(),
     admin_reviews: createMemoryCollection(),
+    notifications: createMemoryCollection(),
+    residue_profiles: createMemoryCollection(),
+    tasks: createMemoryCollection(),
+    messages: createMemoryCollection(),
+    earnings: createMemoryCollection(),
+    dispatch: createMemoryCollection(),
   }
 
   return {
@@ -120,6 +128,7 @@ async function connectToMongo() {
 
   if (!process.env.MONGO_URL || !process.env.DB_NAME) {
     memoryDb = createMemoryDb()
+    runtimeStore.__agrovaniMemoryDb = memoryDb
     return memoryDb
   }
 
@@ -135,6 +144,8 @@ async function connectToMongo() {
     console.warn('MongoDB unavailable, falling back to in-memory store for Vercel deployment:', error.message)
     client = null
     memoryDb = createMemoryDb()
+    runtimeStore.__agrovaniMongoClient = null
+    runtimeStore.__agrovaniMemoryDb = memoryDb
     return memoryDb
   }
 }
@@ -144,6 +155,7 @@ function connectToDatabase() {
   const supabase = getSupabaseServerClient()
   if (supabase) {
     supabaseDb = createSupabaseDb(supabase)
+    runtimeStore.__agrovaniSupabaseDb = supabaseDb
     return supabaseDb
   }
   return connectToMongo()
@@ -166,6 +178,91 @@ function pdf(data) {
   response.headers.set('Content-Type', 'application/pdf')
   response.headers.set('Content-Disposition', 'inline; filename="agrovani-farm-report.pdf"')
   return handleCORS(response)
+function buildProductRecommendation({ crop, state, areaInAcres, usedProducts = [], diagnostic = {} }) {
+  const usedNames = new Set(usedProducts.map((name) => String(name).trim().toLowerCase()).filter(Boolean))
+  const compatible = PRODUCT_CATALOG.filter((product) => !product.crops || product.crops.includes(crop))
+  const used = compatible.filter((product) => usedNames.has(product.name.toLowerCase()))
+  const available = compatible.filter((product) => !usedNames.has(product.name.toLowerCase()))
+  const stressRecommendation = recommendProduct({
+    diurnal: Number(diagnostic.scores?.diurnal) || 0,
+    night: Number(diagnostic.scores?.night) || 0,
+    frost: Number(diagnostic.scores?.frost) || 0,
+    di: diagnostic.droughtIndex,
+    crop,
+    areaInAcres,
+    state,
+  })
+  const primary = available.find((product) => product.name === stressRecommendation.product)
+    || available.find((product) => product.category === (stressRecommendation.category === 'stress' ? 'biostimulant' : 'seedcare'))
+    || available[0]
+    || null
+  const alternatives = available.filter((product) => product.name !== primary?.name).slice(0, 4).map((product) => ({
+    name: product.name,
+    type: product.type,
+    category: product.category,
+    targets: product.targets,
+  }))
+
+  return {
+    crop,
+    usedProducts: used.map((product) => ({ name: product.name, type: product.type, category: product.category })),
+    ignoredProducts: usedProducts.filter((name) => !used.some((product) => product.name.toLowerCase() === String(name).trim().toLowerCase())),
+    recommendation: primary ? {
+      name: primary.name,
+      type: primary.type,
+      category: primary.category,
+      composition: primary.composition,
+      targets: primary.targets,
+      dosage: primary.dosage || null,
+      guidance: primary.dosage
+        ? `${primary.dosage.rateMlPerLitre} ml/L × ${primary.dosage.waterLitresPerAcre} L water/acre. Confirm the current registered India label and crop target before use.`
+        : 'Confirm the crop, target, formulation, dose, safety interval, and current India label before use.',
+    } : null,
+    alternatives,
+    rationale: primary
+      ? `${used.length} previously used product${used.length === 1 ? '' : 's'} considered. ${stressRecommendation.rationale}`
+      : 'No unused compatible catalog product is available. Scout the crop and consult a qualified agronomist before repeating a product.',
+    safety: 'This is a decision-support recommendation, not a prescription. Do not mix products or spray without confirming the registered label and local agronomist guidance.',
+  }
+}
+
+async function createYieldPrediction(body) {
+  const values = {
+    soil_pH: Number(body.soil_pH),
+    nitrogen_ppm: Number(body.nitrogen_ppm),
+    seasonal_rainfall_mm: Number(body.seasonal_rainfall_mm),
+    avg_temp_c: Number(body.avg_temp_c),
+    ndvi_peak: Number(body.ndvi_peak),
+  }
+  if (Object.values(values).some((value) => !Number.isFinite(value))) return ok({ error: 'All yield model features must be finite numbers.' }, 400)
+  if (values.soil_pH < 0 || values.soil_pH > 14 || values.nitrogen_ppm < 0 || values.seasonal_rainfall_mm < 0 || values.ndvi_peak < 0 || values.ndvi_peak > 1) {
+    return ok({ error: 'Yield model inputs are outside the accepted ranges.' }, 400)
+  }
+
+  const modelApiUrl = process.env.YIELD_MODEL_API_URL
+  if (modelApiUrl) {
+    try {
+      const response = await fetch(modelApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+        signal: AbortSignal.timeout(5000),
+      })
+      const data = await response.json()
+      if (!response.ok || data.success === false) return ok({ error: data.error || 'Yield model service failed.' }, 502)
+      return ok({ ...data, source: data.source || 'random_forest_service' })
+    } catch (error) {
+      console.error('Yield model service unavailable:', error.message)
+      return ok({ error: 'Yield model service is unavailable. Start the Codespaces model service or remove YIELD_MODEL_API_URL for local fallback.' }, 503)
+    }
+  }
+
+  const soilScore = Math.max(0, 1 - Math.abs(values.soil_pH - 6.5) / 6.5)
+  const nitrogenScore = Math.min(1, values.nitrogen_ppm / 120)
+  const rainfallScore = Math.max(0, 1 - Math.abs(values.seasonal_rainfall_mm - 800) / 1200)
+  const temperatureScore = Math.max(0, 1 - Math.abs(values.avg_temp_c - 25) / 30)
+  const predictedYield = Math.round(Math.max(0, Math.min(100, (soilScore + nitrogenScore + rainfallScore + temperatureScore + values.ndvi_peak) * 20)) * 100) / 100
+  return ok({ success: true, predicted_yield_percent: predictedYield, source: 'next_fallback_heuristic', features: values })
 }
 
 export async function OPTIONS() {
@@ -221,8 +318,20 @@ async function seedDb(db) {
   return { seeded: seededFarms, referenceDataReady: true }
 }
 
+function localAssistantReply(body) {
+  const message = String(body.message || '').toLowerCase()
+  const reply = message.includes('weather')
+    ? 'Live weather is available from the farm weather page. Check rainfall, temperature, soil moisture, and the verification status before scheduling field work.'
+    : message.includes('mandi') || message.includes('price')
+      ? 'Mandi prices will appear when the government data provider is configured. Until then, AgroVani will not invent a market price.'
+      : message.includes('dispatch') || message.includes('driver')
+        ? 'Dispatch requests are shared through the driver network. Add a task or booking with a pickup location so a third-party driver can be assigned.'
+        : 'I can help turn a crop recommendation into a task, explain a field action, or coordinate a buyer, seller, and driver. Tell me what you need next.'
+  return ok({ reply, source: 'local_fallback' })
+}
+
 async function createAssistantReply(db, body) {
-  if (!process.env.GEMINI_API_KEY) return ok({ error: 'Gemini voice assistant is not configured' }, 503)
+  if (!process.env.GEMINI_API_KEY) return localAssistantReply(body)
 
   const farm = body.farmId ? await db.collection('farms').findOne({ id: body.farmId }) : null
   if (body.farmId && !farm) return ok({ error: 'Farm not found' }, 404)
@@ -255,7 +364,7 @@ async function createAssistantReply(db, body) {
   if (!response.ok) {
     console.error('Gemini assistant error:', data)
     if (response.status === 401 || response.status === 403) {
-      return ok({ error: 'Voice assistant authentication failed. Add a valid GEMINI_API_KEY in .env and restart the server.' }, 502)
+      return localAssistantReply(body)
     }
     return ok({ error: 'Unable to get an assistant response. Please try again.' }, 502)
   }
@@ -463,6 +572,20 @@ async function handleRoute(request, { params }) {
       const valid = expected.length === razorpaySignature.length && timingSafeEqual(Buffer.from(expected), Buffer.from(razorpaySignature))
       if (!valid) return ok({ error: 'Invalid Razorpay payment signature' }, 400)
       return ok({ verified: true, paymentId: razorpayPaymentId, orderId: razorpayOrderId, planId: body.planId || null })
+    if (route === '/recommendations' && method === 'POST') {
+      const body = await request.json()
+      const crop = body.crop || 'Rice'
+      return ok(buildProductRecommendation({
+        crop,
+        state: body.state || 'India',
+        areaInAcres: body.areaInAcres,
+        usedProducts: Array.isArray(body.usedProducts) ? body.usedProducts : [],
+        diagnostic: body.diagnostic || {},
+      }))
+    }
+
+    if (route === '/yield-predict' && method === 'POST') {
+      return createYieldPrediction(await request.json())
     }
 
     const db = await connectToDatabase()
@@ -477,6 +600,86 @@ async function handleRoute(request, { params }) {
 
     if ((route === '/' || route === '/root') && method === 'GET') {
       return ok({ message: 'AgroVani API', crops: CROP_LIST })
+    }
+
+    if (route === '/mandi' && method === 'GET') {
+      const endpoint = process.env.GOVT_MANDI_API_URL
+      const apiKey = process.env.GOVT_MANDI_API_KEY
+      if (!endpoint || !apiKey) return ok({ source: 'local_fallback', records: [
+        { commodity: 'Rice', market: 'Configure government feed', minPrice: '—', modalPrice: '—', maxPrice: '—' },
+      ], message: 'Government mandi API is not configured. Prices are intentionally withheld.' })
+      const response = await fetch(`${endpoint}${endpoint.includes('?') ? '&' : '?'}api-key=${encodeURIComponent(apiKey)}&format=json&limit=50`, { cache: 'no-store', signal: AbortSignal.timeout(8000) })
+      const data = await response.json()
+      if (!response.ok) return ok({ source: 'government', records: [], error: 'Government mandi API request failed.' }, 502)
+      const records = (data.records || []).map((item) => ({
+        commodity: item.commodity || item.Commodity || 'Unknown',
+        market: item.market || item.Market || item.market_name || 'Unknown',
+        minPrice: item.min_price ?? item.Min_Price ?? item.min_price_inr ?? '—',
+        modalPrice: item.modal_price ?? item.Modal_Price ?? item.modal_price_inr ?? '—',
+        maxPrice: item.max_price ?? item.Max_Price ?? item.max_price_inr ?? '—',
+      }))
+      return ok({ source: 'government', records })
+    }
+
+    if (route === '/tasks' && method === 'GET') {
+      const ownerId = searchParams.get('ownerId')
+      const routeDb = await connectToDatabase()
+      const tasks = await routeDb.collection('tasks').find(ownerId ? { ownerId } : {}).toArray()
+      return ok(tasks)
+    }
+
+    if (route === '/tasks' && method === 'POST') {
+      const body = await request.json()
+      const task = { id: uuidv4(), ownerId: body.ownerId || 'farmer-local', title: body.title || 'Field check', instructions: body.instructions || '', dueDate: body.dueDate || new Date().toISOString().slice(0, 10), status: 'open', source: body.source || 'local_recommendation', createdAt: new Date() }
+      const routeDb = await connectToDatabase()
+      await routeDb.collection('tasks').insertOne(task)
+      return ok(task, 201)
+    }
+
+    if (route === '/tasks' && method === 'PATCH') {
+      const body = await request.json()
+      const db = await connectToDatabase()
+      const task = await db.collection('tasks').findOne({ id: body.id })
+      if (!task) return ok({ error: 'Task not found' }, 404)
+      task.status = body.status === 'done' ? 'done' : 'open'
+      await db.collection('tasks').updateOne({ id: task.id }, { $set: task })
+      return ok(task)
+    }
+
+    if (route === '/messages' && method === 'GET') {
+      const routeDb = await connectToDatabase()
+      const messages = await routeDb.collection('messages').find({}).toArray()
+      return ok(messages)
+    }
+
+    if (route === '/messages' && method === 'POST') {
+      const body = await request.json()
+      const message = { id: uuidv4(), senderId: body.senderId || 'local-user', recipientId: body.recipientId || 'network', text: body.text || '', sourceLanguage: body.sourceLanguage || 'en', targetLanguage: body.targetLanguage || body.sourceLanguage || 'en', translatedText: body.text || '', createdAt: new Date() }
+      const routeDb = await connectToDatabase()
+      await routeDb.collection('messages').insertOne(message)
+      return ok(message, 201)
+    }
+
+    if (route === '/earnings' && method === 'GET') {
+      const ownerId = searchParams.get('ownerId')
+      const routeDb = await connectToDatabase()
+      const earnings = await routeDb.collection('earnings').find(ownerId ? { ownerId } : {}).toArray()
+      return ok({ source: 'local_fallback', earnings, totalInr: earnings.reduce((sum, item) => sum + Number(item.amountInr || 0), 0) })
+    }
+
+    if (route === '/dispatch' && method === 'GET') {
+      const routeDb = await connectToDatabase()
+      const dispatch = await routeDb.collection('dispatch').find({}).toArray()
+      return ok({ source: 'local_fallback', dispatch })
+    }
+
+    if (route === '/translate' && method === 'POST') {
+      const body = await request.json()
+      return ok({ source: process.env.TRANSLATION_API_URL ? 'provider' : 'local_fallback', sourceLanguage: body.sourceLanguage || 'auto', targetLanguage: body.targetLanguage || 'en', originalText: body.text || '', translatedText: body.text || '', message: process.env.TRANSLATION_API_URL ? 'Translation provider adapter is ready for implementation.' : 'Translation provider is not configured; original text is preserved.' })
+    }
+
+    if (route === '/satellite' && method === 'GET') {
+      return ok({ source: process.env.ISRO_SATELLITE_API_URL ? 'provider' : 'local_fallback', status: process.env.ISRO_SATELLITE_API_URL ? 'configured' : 'not_configured', message: 'Satellite adapter is ready for an authorized ISRO/Bhuvan endpoint; no synthetic satellite reading is returned.' })
     }
 
     if (route === '/seed' && method === 'POST') {
@@ -661,10 +864,36 @@ async function handleRoute(request, { params }) {
       const listing = {
         id: uuidv4(), sellerId: body.sellerId, sellerName: body.sellerName || body.sellerId, sellerState: body.sellerState || 'India', sellerPlace: body.sellerPlace || 'India', expectedDeliveryDays: Number(body.expectedDeliveryDays) || 7, name: body.name.trim(), category: body.category || 'Other',
         priceInr: Number(body.priceInr), stockUnits: Math.max(0, Number(body.stockUnits) || 0), status: 'active',
+        id: uuidv4(), sellerId: body.sellerId, name: body.name.trim(), category: body.category || 'Other',
+        listingType: body.listingType || 'input', residueType: body.residueType || null, qualityGrade: body.qualityGrade || null,
+        moisturePercent: body.moisturePercent != null ? Number(body.moisturePercent) : null, quantityQuintals: body.quantityQuintals != null ? Number(body.quantityQuintals) : null,
+        pickupDistrict: body.pickupDistrict || '', notes: body.notes || '', priceInr: Number(body.priceInr), stockUnits: Math.max(0, Number(body.stockUnits) || 0), status: 'active',
         createdAt: new Date(), updatedAt: new Date(),
       }
       await db.collection('marketplace_listings').insertOne(listing)
+      if (listing.listingType === 'residue_need') {
+        await db.collection('notifications').insertOne({
+          id: uuidv4(), audience: 'farmer', type: 'buyer_listing', title: 'New buyer residue requirement',
+          message: `${listing.sellerId} needs ${listing.quantityQuintals || 'available'} quintals of ${listing.residueType || 'crop residue'} in ${listing.pickupDistrict || 'your area'}.`,
+          listingId: listing.id, read: false, createdAt: new Date(),
+        })
+      }
       return ok(listing, 201)
+    }
+
+    if (route === '/notifications' && method === 'GET') {
+      const audience = searchParams.get('audience') || 'farmer'
+      const notifications = await db.collection('notifications').find({ audience }).sort({ createdAt: -1 }).limit(100).toArray()
+      return ok(notifications)
+    }
+
+    if (route === '/notifications' && method === 'PATCH') {
+      const body = await request.json()
+      const notification = await db.collection('notifications').findOne({ id: body.id })
+      if (!notification) return ok({ error: 'Notification not found' }, 404)
+      notification.read = true
+      await db.collection('notifications').updateOne({ id: notification.id }, { $set: notification })
+      return ok(notification)
     }
 
     if (route === '/marketplace/orders' && method === 'GET') {
@@ -800,7 +1029,11 @@ async function handleRoute(request, { params }) {
         sprayWindowStart: spray.windows?.[0]?.startTime || null,
         createdAt: new Date(),
       }
-      await db.collection('stress_diagnostic_logs').insertOne(log)
+      try {
+        await db.collection('stress_diagnostic_logs').insertOne(log)
+      } catch (error) {
+        console.warn('Stress diagnostic logging skipped:', error.message)
+      }
 
       return ok({
         weather,
@@ -859,6 +1092,21 @@ async function handleRoute(request, { params }) {
         activeOrderQuantity: orders.reduce((total, order) => total + Math.max(0, Number(order.quantity) || 0), 0),
       })
       return ok({ ...result, ...fieldMetrics })
+    }
+
+    if (route === '/residue/profile' && method === 'GET') {
+      const farmId = searchParams.get('farmId')
+      const profile = farmId ? await db.collection('residue_profiles').findOne({ farmId }) : null
+      return ok(profile || {})
+    }
+
+    if (route === '/residue/profile' && method === 'POST') {
+      const body = await request.json()
+      if (!body.farmId || !body.residueType || !body.qualityGrade || Number(body.quantityQuintals) <= 0) return ok({ error: 'farmId, residue type, quality grade and positive quantity are required' }, 400)
+      const profile = { id: uuidv4(), farmId: body.farmId, residueType: body.residueType, qualityGrade: body.qualityGrade, quantityQuintals: Number(body.quantityQuintals), moisturePercent: body.moisturePercent != null ? Number(body.moisturePercent) : null, packaging: body.packaging || 'Loose', pickupReadyDate: body.pickupReadyDate || null, notes: body.notes || '', updatedAt: new Date() }
+      const existing = await db.collection('residue_profiles').findOne({ farmId: profile.farmId })
+      if (existing) { profile.id = existing.id; await db.collection('residue_profiles').updateOne({ id: existing.id }, { $set: profile }) } else await db.collection('residue_profiles').insertOne(profile)
+      return ok(profile)
     }
 
     if (route === '/machinery' && method === 'GET') {

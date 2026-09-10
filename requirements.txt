@@ -1,0 +1,2 @@
+# Yield model service dependencies
+-r yield_model/requirements.txt
