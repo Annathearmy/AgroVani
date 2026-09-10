@@ -7,7 +7,7 @@ from livekit import agents
 from livekit.agents import Agent, AgentServer, AgentSession, room_io
 from livekit.plugins import google
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / '.env')
 load_dotenv(Path(__file__).resolve().parent / '.env.local')
 

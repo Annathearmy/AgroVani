@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { farmCreateSchema, listingCreateSchema, orderCreateSchema } from '../lib/contracts/api.js'
+import { farmCreateSchema, listingCreateSchema, orderCreateSchema } from '../contracts/src/api.js'
 
 test('farm contract rejects invalid coordinates and area', () => {
   const result = farmCreateSchema.safeParse({ areaInAcres: 0, latitude: 100, longitude: 76 })

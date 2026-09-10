@@ -12,8 +12,8 @@ try:
 except ImportError:  # pragma: no cover - handled by the Codespaces requirements
     joblib = None
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-MODEL_PATH = Path(os.getenv('YIELD_MODEL_PATH', PROJECT_ROOT / 'model' / 'rf_yield_model.joblib'))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+MODEL_PATH = Path(os.getenv('YIELD_MODEL_PATH', PROJECT_ROOT / 'science' / 'model' / 'rf_yield_model.joblib'))
 FEATURES = ['soil_pH', 'nitrogen_ppm', 'seasonal_rainfall_mm', 'avg_temp_c', 'ndvi_peak']
 
 app = Flask(__name__)
@@ -27,7 +27,7 @@ def load_model() -> None:
         model_load_error = f'Model artifact not found at {MODEL_PATH}. Add the trained Random Forest file to enable model predictions.'
         return
     if joblib is None:
-        model_load_error = 'joblib is not installed. Run pip install -r yield_model/requirements.txt.'
+        model_load_error = 'joblib is not installed. Run pip install -r services/yield-model/requirements.txt.'
         return
     try:
         model = joblib.load(MODEL_PATH)

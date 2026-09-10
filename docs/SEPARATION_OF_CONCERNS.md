@@ -13,9 +13,9 @@ The recommended end state is a **modular monorepo**, not two immediately decoupl
 ### Implemented first phase
 
 - Reusable frontend components and hooks now live under `src/components` and `src/hooks`.
-- Server-only adapters, AI integration, services, database selection, and Supabase access now live under `lib/server`.
-- Zod request contracts live under `lib/contracts` and validate farm, listing, and order writes.
-- The Next route tree remains at the repository root intentionally; moving `app` into `apps/web` is a later deployment-aware phase.
+- Server-only adapters, AI integration, services, database selection, and Supabase access now live under `backend/src`.
+- Zod request contracts now live under `contracts/src` and validate farm, listing, and order writes.
+- The Next route tree now lives under `web/app`; root scripts invoke the web package from its own project root.
 
 ### Immediate blockers found
 

@@ -2,7 +2,7 @@ import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / 'yield_model' / 'app.py'
+MODULE_PATH = ROOT / 'services' / 'yield-model' / 'app.py'
 
 spec = importlib.util.spec_from_file_location('agrovani_yield_model', MODULE_PATH)
 module = importlib.util.module_from_spec(spec)

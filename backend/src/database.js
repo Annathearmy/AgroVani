@@ -1,5 +1,5 @@
 import { MongoClient } from 'mongodb'
-import { createSupabaseDb, getSupabaseServerClient } from '@/lib/server/supabase'
+import { createSupabaseDb, getSupabaseServerClient } from '@/backend/supabase'
 
 const runtimeStore = globalThis
 let mongoClient = runtimeStore.__agrovaniMongoClient || null

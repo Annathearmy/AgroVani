@@ -5,7 +5,7 @@ const {
   calculateIncentivePlan,
   buildCropCalendar,
   calculateYieldProjection,
-} = require('../lib/calculations/agriLoop')
+} = require('../science/src/agriLoop')
 
 test('calculateIncentivePlan applies repeat buyer, buyback and order incentives correctly', () => {
   const result = calculateIncentivePlan({

@@ -28,7 +28,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Exclude server API route from static export
-        run: mv app/api /tmp/agrovani-api
+        run: mv web/app/api /tmp/agrovani-api
       - name: Build static frontend
         env:
           GITHUB_PAGES: 'true'
@@ -40,9 +40,9 @@ jobs:
         run: npm run build
       - name: Restore server API route
         if: always()
-        run: mv /tmp/agrovani-api app/api
+        run: mv /tmp/agrovani-api web/app/api
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: out
+          path: web/out
       - id: deployment
         uses: actions/deploy-pages@v4
