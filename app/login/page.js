@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, BadgeCheck, Building2, ShieldCheck, UserRound, Lock, Mail, MapPin, ChevronRight, CheckCircle2 } from 'lucide-react'
+import { ArrowRight, BadgeCheck, Building2, ShieldCheck, UserRound, Lock, Mail, MapPin, ChevronRight, CheckCircle2, ShoppingCart, Truck } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 const roles = [
@@ -24,6 +24,24 @@ const roles = [
     password: 'AgroVani@123',
     redirect: '/seller/dashboard',
     badge: 'Residue marketplace',
+  },
+  {
+    key: 'buyer',
+    label: 'Buyer',
+    accent: 'sky',
+    username: 'buyer@agrovani.in',
+    password: 'AgroVani@123',
+    redirect: '/buyer/dashboard',
+    badge: 'Marketplace & orders',
+  },
+  {
+    key: 'driver',
+    label: 'Driver',
+    accent: 'violet',
+    username: 'driver@agrovani.in',
+    password: 'AgroVani@123',
+    redirect: '/driver/dashboard',
+    badge: 'Routes & pickups',
   },
   {
     key: 'admin',
@@ -50,6 +68,20 @@ const roleStyles = {
     text: 'text-amber-700',
     chip: 'bg-amber-50 text-amber-700',
     button: 'bg-amber-600 hover:bg-amber-700',
+  },
+  buyer: {
+    ring: 'ring-sky-200',
+    bg: 'from-sky-500 to-cyan-500',
+    text: 'text-sky-700',
+    chip: 'bg-sky-50 text-sky-700',
+    button: 'bg-sky-600 hover:bg-sky-700',
+  },
+  driver: {
+    ring: 'ring-violet-200',
+    bg: 'from-violet-600 to-indigo-600',
+    text: 'text-violet-700',
+    chip: 'bg-violet-50 text-violet-700',
+    button: 'bg-violet-600 hover:bg-violet-700',
   },
   admin: {
     ring: 'ring-blue-200',
@@ -128,6 +160,8 @@ export default function LoginPage() {
                   <div className={`rounded-full bg-gradient-to-r ${roleStyles[currentRole.key].bg} p-2`}>
                     {currentRole.key === 'farmer' && <UserRound className="h-5 w-5 text-white" />}
                     {currentRole.key === 'seller' && <Building2 className="h-5 w-5 text-white" />}
+                    {currentRole.key === 'buyer' && <ShoppingCart className="h-5 w-5 text-white" />}
+                    {currentRole.key === 'driver' && <Truck className="h-5 w-5 text-white" />}
                     {currentRole.key === 'admin' && <BadgeCheck className="h-5 w-5 text-white" />}
                   </div>
                   <div>
@@ -262,7 +296,7 @@ export default function LoginPage() {
                 </div>
                 <div className="mt-3 flex items-center gap-3 text-xs text-slate-500">
                   <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">Demo credentials</span>
-                  <span>Farmer, Seller, Admin roles</span>
+                  <span>Farmer, Seller, Buyer, Driver and Admin roles</span>
                 </div>
               </div>
             </section>

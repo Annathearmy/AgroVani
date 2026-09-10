@@ -1,5 +1,6 @@
 create table if not exists public.farms (
   id uuid primary key default gen_random_uuid(),
+  owner_id text,
   name text not null,
   village text default '',
   district text not null,
@@ -65,6 +66,10 @@ create table if not exists public.stress_diagnostic_logs (
 create table if not exists public.marketplace_listings (
   id uuid primary key default gen_random_uuid(),
   seller_id text not null,
+  seller_name text,
+  seller_state text,
+  seller_place text,
+  expected_delivery_days integer not null default 7,
   name text not null,
   category text not null,
   price_inr numeric not null check (price_inr > 0),
@@ -78,7 +83,14 @@ create table if not exists public.marketplace_orders (
   id uuid primary key default gen_random_uuid(),
   listing_id uuid references public.marketplace_listings(id) on delete set null,
   farm_id uuid references public.farms(id) on delete set null,
+  buyer_id text,
   seller_id text not null,
+  seller_name text,
+  seller_state text,
+  seller_place text,
+  listing_name text,
+  expected_delivery_days integer not null default 7,
+  expected_delivery_at timestamptz,
   quantity integer not null default 1 check (quantity > 0),
   total_inr numeric not null default 0,
   status text not null default 'new',
@@ -95,6 +107,33 @@ create table if not exists public.admin_reviews (
   reviewed_at timestamptz
 );
 
+create table if not exists public.buyer_needs (
+  id uuid primary key default gen_random_uuid(),
+  buyer_id text not null,
+  crop_type text not null,
+  residue_type text not null,
+  use_case text not null default 'Biomass processing',
+  quantity numeric not null check (quantity > 0),
+  region text not null default 'India',
+  urgency text not null default 'This month',
+  notes text default '',
+  status text not null default 'open',
+  created_at timestamptz not null default now()
+);
+
+alter table public.farms add column if not exists owner_id text;
+alter table public.marketplace_listings add column if not exists seller_name text;
+alter table public.marketplace_listings add column if not exists seller_state text;
+alter table public.marketplace_listings add column if not exists seller_place text;
+alter table public.marketplace_listings add column if not exists expected_delivery_days integer not null default 7;
+alter table public.marketplace_orders add column if not exists buyer_id text;
+alter table public.marketplace_orders add column if not exists seller_name text;
+alter table public.marketplace_orders add column if not exists seller_state text;
+alter table public.marketplace_orders add column if not exists seller_place text;
+alter table public.marketplace_orders add column if not exists listing_name text;
+alter table public.marketplace_orders add column if not exists expected_delivery_days integer not null default 7;
+alter table public.marketplace_orders add column if not exists expected_delivery_at timestamptz;
+
 alter table public.farms enable row level security;
 alter table public.machinery enable row level security;
 alter table public.district_metrics enable row level security;
@@ -103,3 +142,4 @@ alter table public.stress_diagnostic_logs enable row level security;
 alter table public.marketplace_listings enable row level security;
 alter table public.marketplace_orders enable row level security;
 alter table public.admin_reviews enable row level security;
+alter table public.buyer_needs enable row level security;

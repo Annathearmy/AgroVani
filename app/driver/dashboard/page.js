@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { ArrowLeft, MapPinned, Navigation, Clock3, Truck, PackageCheck, Route, AlertCircle } from 'lucide-react'
+import GoogleDriverMap from '@/components/driver/GoogleDriverMap'
 
 const metrics = [
   { label: 'Assigned trips', value: '18', detail: '6 active' },
@@ -89,6 +90,9 @@ export default function DriverDashboard() {
                 <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/15">
                   <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-emerald-400 to-violet-400" />
                 </div>
+              </div>
+              <div className="mt-4 overflow-hidden rounded-[20px] border border-slate-200">
+                <GoogleDriverMap />
               </div>
             </div>
 
