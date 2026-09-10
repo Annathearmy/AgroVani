@@ -6,6 +6,7 @@ import { fetchWeather } from '@/lib/adapters/weather'
 import { fetchSprayWindow, fetchHydricStress, geocodeLocation } from '@/lib/adapters/cehub'
 import { computeStressDiagnostic, computeFarmEconomics, CROP_LIST, PRODUCT_CATALOG } from '@/lib/calculations/cropRecommendation'
 import { computeResidue, computeFieldReadiness, DISTRICT_DATA, getDistrictData } from '@/lib/calculations/residueRecommendation'
+import { calculateIncentivePlan, buildCropCalendar, calculateYieldProjection } from '@/lib/calculations/agriLoop'
 import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/ai/gemini'
 import { createSupabaseDb, getSupabaseServerClient } from '@/lib/supabase/server'
 
@@ -432,6 +433,75 @@ async function handleRoute(request, { params }) {
       await seedDb(db)
       const farms = await db.collection('farms').find({}).limit(100).toArray()
       return ok(farms.map(({ _id, ...rest }) => rest))
+    }
+
+    if (route === '/agri-loop' && method === 'GET') {
+      const farmId = searchParams.get('farmId')
+      const requestedArea = Number(searchParams.get('areaInAcres')) || Number(searchParams.get('area')) || 5
+      let farm = null
+      let area = requestedArea
+      let district = searchParams.get('district') || 'Patiala'
+      let cropType = searchParams.get('crop') || 'Rice'
+
+      if (farmId) {
+        farm = await db.collection('farms').findOne({ id: farmId })
+        if (!farm) return ok({ error: 'Farm not found' }, 404)
+        area = Number(farm.areaInAcres) || area
+        district = farm.district || district
+        cropType = farm.cropType || cropType
+      }
+
+      const stressDiagnostics = {
+        scores: {
+          diurnal: Number(searchParams.get('diurnal') || 2.4),
+          night: Number(searchParams.get('night') || 3.1),
+          frost: Number(searchParams.get('frost') || 0),
+        },
+        droughtIndex: { value: Number(searchParams.get('droughtIndex') || 1.15) },
+      }
+
+      const residue = computeResidue({ areaInAcres: area, district, cropType })
+      const cropEconomics = computeFarmEconomics({
+        crop: cropType,
+        areaInAcres: area,
+        diagnostic: stressDiagnostics,
+      })
+      const incentive = calculateIncentivePlan({
+        orderValue: Number(searchParams.get('orderValue') || residue.totalValueINR || cropEconomics.grossRevenue || 100000),
+        repeatBuyerDiscountPct: Number(searchParams.get('repeatBuyerDiscountPct') || 8),
+        seedSellerBuybackPct: Number(searchParams.get('seedSellerBuybackPct') || 12),
+        residualSellerIncentivePct: Number(searchParams.get('residualSellerIncentivePct') || 7),
+        logisticsIncentivePct: Number(searchParams.get('logisticsIncentivePct') || 5),
+        buyerRepeatCount: Number(searchParams.get('buyerRepeatCount') || 4),
+      })
+      const calendar = buildCropCalendar({
+        cropType,
+        sowingDate: searchParams.get('sowingDate') || '2026-06-15',
+        weatherDelayDays: Number(searchParams.get('weatherDelayDays') || 0),
+        harvestWindowDays: Number(searchParams.get('harvestWindowDays') || (cropType === 'Rice' ? 120 : 110)),
+      })
+      const yieldProjection = calculateYieldProjection({
+        areaInAcres: area,
+        expectedYieldTonsPerAcre: cropEconomics.expectedYieldTonsPerAcre,
+        weatherDelayDays: Number(searchParams.get('weatherDelayDays') || 0),
+        stressIndex: Number(searchParams.get('stressIndex') || 0.18),
+        yieldLossPct: Number(searchParams.get('yieldLossPct') || 6),
+      })
+
+      return ok({
+        farm: farm ? { id: farm.id, name: farm.name, cropType, district, areaInAcres: area } : null,
+        residue,
+        cropEconomics,
+        incentive,
+        cropCalendar: calendar,
+        yieldProjection,
+        network: {
+          seedSeller: 'Seed seller / input partner',
+          logistics: '3rd-party driver / aggregator',
+          farmer: 'Farmer pickup & delivery',
+          residueSeller: 'Residue buyer / biogas / compost partner',
+        },
+      })
     }
 
     if (route === '/marketplace/listings' && method === 'GET') {

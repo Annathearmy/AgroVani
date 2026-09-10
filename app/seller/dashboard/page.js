@@ -20,6 +20,32 @@ export default function SellerDashboard() {
   const inventory = listings.reduce((sum, item) => sum + Number(item.stockUnits || 0), 0)
   const revenue = orders.reduce((sum, order) => sum + Number(order.totalInr || 0), 0)
   const delivered = orders.length ? Math.round((orders.filter((order) => order.status === 'delivered').length / orders.length) * 100) : 0
+  const activeOrders = orders.filter((order) => order.status !== 'delivered')
+  const pendingPickup = orders.filter((order) => ['new', 'packed'].includes(order.status)).length
+  const statusOrder = ['new', 'packed', 'out_for_delivery', 'delivered']
+  const orderProgress = useMemo(() => {
+    const total = orders.length || 1
+    return {
+      new: Math.round((orders.filter((order) => order.status === 'new').length / total) * 100),
+      packed: Math.round((orders.filter((order) => order.status === 'packed').length / total) * 100),
+      out_for_delivery: Math.round((orders.filter((order) => order.status === 'out_for_delivery').length / total) * 100),
+      delivered: Math.round((orders.filter((order) => order.status === 'delivered').length / total) * 100),
+    }
+  }, [orders])
+
+  const statusStyles = {
+    new: 'bg-sky-100 text-sky-700',
+    packed: 'bg-amber-100 text-amber-700',
+    out_for_delivery: 'bg-violet-100 text-violet-700',
+    delivered: 'bg-emerald-100 text-emerald-700',
+  }
+
+  const statusLabel = {
+    new: 'New',
+    packed: 'Packed',
+    out_for_delivery: 'Out for delivery',
+    delivered: 'Delivered',
+  }
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('agrovani_user') || '{}')
@@ -62,7 +88,7 @@ export default function SellerDashboard() {
           <LanguageSwitcher />
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-4">
           <div className="rounded-[28px] border border-white/80 bg-white/80 p-6 shadow-sm backdrop-blur-md">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
               <Store className="h-6 w-6" />
@@ -89,6 +115,15 @@ export default function SellerDashboard() {
             <p className="mt-3 text-4xl font-bold text-slate-900">{delivered}%</p>
             <p className="mt-2 text-sm text-slate-600">On-time shipping rate</p>
           </div>
+
+          <div className="rounded-[28px] border border-white/80 bg-white/80 p-6 shadow-sm backdrop-blur-md">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
+              <Truck className="h-6 w-6" />
+            </div>
+            <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.3em] text-slate-500">Pickup queue</p>
+            <p className="mt-3 text-4xl font-bold text-slate-900">{pendingPickup}</p>
+            <p className="mt-2 text-sm text-slate-600">Orders awaiting dispatch</p>
+          </div>
         </div>
         {loading && <p className="mt-6 text-sm text-slate-600">Loading shared seller data...</p>}
         {error && <p role="alert" className="mt-6 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
@@ -103,7 +138,45 @@ export default function SellerDashboard() {
           <div className="mt-4 divide-y divide-slate-200/70">{filteredListings.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><p className="font-semibold text-slate-900">{item.name}</p><p className="text-xs text-slate-500">{item.category} · ₹{Number(item.priceInr).toLocaleString('en-IN')}</p></div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.stockUnits < 50 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{item.stockUnits} in stock</span></div>)}</div>
         </section>
 
-        <section className="mt-6 rounded-[28px] border border-white/80 bg-white/75 p-6 shadow-sm backdrop-blur-md"><div className="flex items-center gap-2"><Truck className="h-5 w-5 text-sky-600" /><h2 className="text-2xl font-bold text-slate-900">Recent orders</h2></div><div className="mt-4 grid gap-3">{orders.map((order) => <div key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/70 p-4"><div><p className="font-semibold text-slate-900">{order.id}</p><p className="text-sm text-slate-500">Quantity {order.quantity} · ₹{Number(order.totalInr).toLocaleString('en-IN')}</p></div><button onClick={() => advanceOrder(order.id)} className="flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" /> {order.status}</button></div>)}</div></section>
+        <section className="mt-6 rounded-[28px] border border-white/80 bg-white/75 p-6 shadow-sm backdrop-blur-md">
+          <div className="flex items-center gap-2"><Truck className="h-5 w-5 text-sky-600" /><h2 className="text-2xl font-bold text-slate-900">Residue order pipeline</h2></div>
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
+            {Object.entries(orderProgress).map(([state, percent]) => (
+              <div key={state} className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+                <div className="flex items-center justify-between text-sm text-slate-600">
+                  <span>{statusLabel[state]}</span>
+                  <span className="font-semibold text-slate-900">{percent}%</span>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-sky-500" style={{ width: `${percent}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-3">
+            {activeOrders.length ? activeOrders.map((order) => (
+              <div key={order.id} className="flex flex-col gap-3 rounded-2xl bg-white/80 p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="font-semibold text-slate-900">{order.id}</p>
+                  <p className="text-sm text-slate-500">Quantity {order.quantity} · ₹{Number(order.totalInr).toLocaleString('en-IN')}</p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[order.status] || 'bg-slate-100 text-slate-700'}`}>
+                    {statusLabel[order.status] || order.status}
+                  </span>
+                  <button onClick={() => advanceOrder(order.id)} className="flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white">
+                    <Check className="h-3.5 w-3.5" />
+                    {statusOrder[Math.min(statusOrder.indexOf(order.status) + 1, statusOrder.length - 1)] ? 'Advance status' : 'Completed'}
+                  </button>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-6 text-sm text-slate-500">No active orders in the dispatch pipeline.</div>
+            )}
+          </div>
+        </section>
       </div>
     </main>
   )
