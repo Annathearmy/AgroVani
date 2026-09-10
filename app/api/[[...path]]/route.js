@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 import { AccessToken } from 'livekit-server-sdk'
 import { fetchWeather } from '@/lib/adapters/weather'
 import { fetchSprayWindow, fetchHydricStress, geocodeLocation } from '@/lib/adapters/cehub'
-import { computeStressDiagnostic, computeFarmEconomics, CROP_LIST, PRODUCT_CATALOG } from '@/lib/calculations/cropRecommendation'
+import { computeStressDiagnostic, computeFarmEconomics, CROP_LIST, PRODUCT_CATALOG, recommendProduct } from '@/lib/calculations/cropRecommendation'
 import { computeResidue, computeFieldReadiness, DISTRICT_DATA, getDistrictData } from '@/lib/calculations/residueRecommendation'
 import { calculateIncentivePlan, buildCropCalendar, calculateYieldProjection } from '@/lib/calculations/agriLoop'
 import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/ai/gemini'
@@ -151,6 +151,54 @@ function handleCORS(response) {
 
 function ok(data, status = 200) {
   return handleCORS(NextResponse.json(data, { status }))
+}
+
+function buildProductRecommendation({ crop, state, areaInAcres, usedProducts = [], diagnostic = {} }) {
+  const usedNames = new Set(usedProducts.map((name) => String(name).trim().toLowerCase()).filter(Boolean))
+  const compatible = PRODUCT_CATALOG.filter((product) => !product.crops || product.crops.includes(crop))
+  const used = compatible.filter((product) => usedNames.has(product.name.toLowerCase()))
+  const available = compatible.filter((product) => !usedNames.has(product.name.toLowerCase()))
+  const stressRecommendation = recommendProduct({
+    diurnal: Number(diagnostic.scores?.diurnal) || 0,
+    night: Number(diagnostic.scores?.night) || 0,
+    frost: Number(diagnostic.scores?.frost) || 0,
+    di: diagnostic.droughtIndex,
+    crop,
+    areaInAcres,
+    state,
+  })
+  const primary = available.find((product) => product.name === stressRecommendation.product)
+    || available.find((product) => product.category === (stressRecommendation.category === 'stress' ? 'biostimulant' : 'seedcare'))
+    || available[0]
+    || null
+  const alternatives = available.filter((product) => product.name !== primary?.name).slice(0, 4).map((product) => ({
+    name: product.name,
+    type: product.type,
+    category: product.category,
+    targets: product.targets,
+  }))
+
+  return {
+    crop,
+    usedProducts: used.map((product) => ({ name: product.name, type: product.type, category: product.category })),
+    ignoredProducts: usedProducts.filter((name) => !used.some((product) => product.name.toLowerCase() === String(name).trim().toLowerCase())),
+    recommendation: primary ? {
+      name: primary.name,
+      type: primary.type,
+      category: primary.category,
+      composition: primary.composition,
+      targets: primary.targets,
+      dosage: primary.dosage || null,
+      guidance: primary.dosage
+        ? `${primary.dosage.rateMlPerLitre} ml/L × ${primary.dosage.waterLitresPerAcre} L water/acre. Confirm the current registered India label and crop target before use.`
+        : 'Confirm the crop, target, formulation, dose, safety interval, and current India label before use.',
+    } : null,
+    alternatives,
+    rationale: primary
+      ? `${used.length} previously used product${used.length === 1 ? '' : 's'} considered. ${stressRecommendation.rationale}`
+      : 'No unused compatible catalog product is available. Scout the crop and consult a qualified agronomist before repeating a product.',
+    safety: 'This is a decision-support recommendation, not a prescription. Do not mix products or spray without confirming the registered label and local agronomist guidance.',
+  }
 }
 
 export async function OPTIONS() {
@@ -372,6 +420,18 @@ async function handleRoute(request, { params }) {
             : 'Verify the current registered India label after confirming the crop, target, formulation, water volume, and safety interval. The API never invents a chemical dose.',
         }))
       return ok({ products, count: products.length })
+    }
+
+    if (route === '/recommendations' && method === 'POST') {
+      const body = await request.json()
+      const crop = body.crop || 'Rice'
+      return ok(buildProductRecommendation({
+        crop,
+        state: body.state || 'India',
+        areaInAcres: body.areaInAcres,
+        usedProducts: Array.isArray(body.usedProducts) ? body.usedProducts : [],
+        diagnostic: body.diagnostic || {},
+      }))
     }
 
     const db = await connectToDatabase()

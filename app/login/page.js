@@ -3,8 +3,9 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, BadgeCheck, Building2, ShieldCheck, UserRound, Lock, Mail, MapPin, ChevronRight, CheckCircle2 } from 'lucide-react'
+import { ArrowRight, BadgeCheck, Building2, ShieldCheck, UserRound, Lock, Mail, MapPin, ChevronRight, CheckCircle2, Truck } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import InstallAppButton from '@/components/InstallAppButton'
 
 const roles = [
   {
@@ -34,6 +35,15 @@ const roles = [
     redirect: '/admin/dashboard',
     badge: 'Monitoring & oversight',
   },
+  {
+    key: 'driver',
+    label: 'Driver',
+    accent: 'violet',
+    username: 'driver@agrovani.in',
+    password: 'AgroVani@123',
+    redirect: '/driver/dashboard',
+    badge: 'Pickup & route access',
+  },
 ]
 
 const roleStyles = {
@@ -57,6 +67,13 @@ const roleStyles = {
     text: 'text-blue-700',
     chip: 'bg-blue-50 text-blue-700',
     button: 'bg-blue-600 hover:bg-blue-700',
+  },
+  driver: {
+    ring: 'ring-violet-200',
+    bg: 'from-violet-600 to-indigo-600',
+    text: 'text-violet-700',
+    chip: 'bg-violet-50 text-violet-700',
+    button: 'bg-violet-600 hover:bg-violet-700',
   },
 }
 
@@ -108,7 +125,7 @@ export default function LoginPage() {
     <main className="page-onboarding min-h-screen text-slate-800">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="overflow-hidden rounded-[28px] border border-white/25 bg-white/20 shadow-[0_30px_80px_rgba(0,0,0,0.3)] backdrop-blur-xl">
-          <div className="flex justify-end px-6 pt-4 lg:px-10"><LanguageSwitcher /></div>
+          <div className="flex flex-wrap items-center justify-end gap-3 px-6 pt-4 lg:px-10"><InstallAppButton compact /><LanguageSwitcher /></div>
           <div className="h-2 w-full bg-gradient-to-r from-[#ff9933] via-[#ffffff] to-[#138808]" />
 
           <div className="flex flex-col gap-0 lg:flex-row">
@@ -129,6 +146,7 @@ export default function LoginPage() {
                     {currentRole.key === 'farmer' && <UserRound className="h-5 w-5 text-white" />}
                     {currentRole.key === 'seller' && <Building2 className="h-5 w-5 text-white" />}
                     {currentRole.key === 'admin' && <BadgeCheck className="h-5 w-5 text-white" />}
+                    {currentRole.key === 'driver' && <Truck className="h-5 w-5 text-white" />}
                   </div>
                   <div>
                     <p className="text-[10px] uppercase tracking-[0.2em] text-slate-300">Access Portal</p>
@@ -181,7 +199,7 @@ export default function LoginPage() {
                 <Link href="/" className="text-sm font-semibold text-slate-600 transition hover:text-slate-900">Back to home</Link>
               </div>
 
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {roles.map((role) => (
                   <button
                     key={role.key}
@@ -194,7 +212,7 @@ export default function LoginPage() {
                       })
                       setError('')
                     }}
-                    className={`rounded-2xl border p-3 text-left transition ${activeRole === role.key ? `border-${role.key === 'farmer' ? 'emerald' : role.key === 'seller' ? 'amber' : 'blue'}-300 bg-${role.key === 'farmer' ? 'emerald' : role.key === 'seller' ? 'amber' : 'blue'}-50 shadow-sm` : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}
+                    className={`rounded-2xl border p-3 text-left transition ${activeRole === role.key ? `${roleStyles[role.key].chip} border-current shadow-sm` : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold text-slate-800">{role.label}</span>
@@ -204,7 +222,11 @@ export default function LoginPage() {
                 ))}
               </div>
 
-              <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+              <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                <span className="font-semibold">Demo access:</span> this is a mock authentication flow. No account or payment is created.
+              </div>
+
+              <form onSubmit={handleSubmit} className="mt-5 space-y-5">
                 <div className="space-y-2">
                   <label htmlFor="email" className="text-sm font-semibold text-slate-700">Email / Username</label>
                   <div className="relative">

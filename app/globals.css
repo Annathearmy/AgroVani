@@ -37,6 +37,7 @@
   body {
     @apply text-foreground;
     margin: 0;
+    overflow-x: hidden;
     min-height: 100vh;
     background-color: #f7f9fb;
     background-image:
@@ -145,6 +146,37 @@
   .dot-amber { box-shadow: 0 0 0 8px rgba(245,158,11,0.12); }
   .ml-slot {
     background-image: linear-gradient(135deg, rgba(15,23,42,0.96), rgba(2,6,23,0.96));
+  }
+
+  .safe-area-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 640px) {
+  .glass-card,
+  .glass-panel {
+    border-radius: 22px;
+    padding: 1rem;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

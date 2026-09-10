@@ -7,6 +7,7 @@ import FarmMapCard from '@/components/farmer/FarmMapCard'
 import BookMachineryCard from '@/components/farmer/BookMachineryCard'
 import LiveKitVoiceAgent from '@/components/farmer/LiveKitVoiceAgent'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import InstallAppButton from '@/components/InstallAppButton'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 import { getRecommendationCopy } from '@/lib/i18n/recommendation'
 import {
@@ -60,6 +61,12 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [marketplaceListings, setMarketplaceListings] = useState([])
   const [marketplaceMessage, setMarketplaceMessage] = useState('')
+  const [availableProducts, setAvailableProducts] = useState([])
+  const [usedProducts, setUsedProducts] = useState([])
+  const [productSearch, setProductSearch] = useState('')
+  const [productRecommendation, setProductRecommendation] = useState(null)
+  const [recommendationLoading, setRecommendationLoading] = useState(false)
+  const [recommendationError, setRecommendationError] = useState('')
   const [chatMessages, setChatMessages] = useState([
     { role: 'assistant', text: 'Hello farmer! I am AgroSaathi. I can track your crop cycle, residue plan, and logistics status.' },
   ])
@@ -113,6 +120,40 @@ export default function App() {
     return new Intl.DateTimeFormat(locale === 'hi' ? 'hi-IN' : locale === 'pa' ? 'pa-IN' : 'en-IN', {
       month: 'short', day: 'numeric',
     }).format(date)
+  }
+
+  function toggleUsedProduct(productName) {
+    setUsedProducts((current) => {
+      const next = current.includes(productName) ? current.filter((name) => name !== productName) : [...current, productName]
+      if (farm && typeof window !== 'undefined') localStorage.setItem(`agrovani_used_products_${farm.id}`, JSON.stringify(next))
+      return next
+    })
+  }
+
+  async function getProductRecommendation() {
+    if (!farm) return
+    setRecommendationLoading(true)
+    setRecommendationError('')
+    try {
+      const response = await fetch('/api/recommendations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          crop: farm.cropType,
+          state: farm.state,
+          areaInAcres: farm.areaInAcres,
+          usedProducts,
+          diagnostic: stress?.diagnostic || {},
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok || data.error) throw new Error(data.error || 'Recommendation unavailable')
+      setProductRecommendation(data)
+    } catch (error) {
+      setRecommendationError(error.message || 'Recommendation unavailable')
+    } finally {
+      setRecommendationLoading(false)
+    }
   }
 
   function stopVoice() {
@@ -330,6 +371,25 @@ export default function App() {
     setAgriLoop(null)
     setMarketplaceListings([])
     setMarketplaceMessage('')
+    setProductRecommendation(null)
+    setRecommendationError('')
+    try {
+      const savedProducts = JSON.parse(localStorage.getItem(`agrovani_used_products_${f.id}`) || '[]')
+      setUsedProducts(Array.isArray(savedProducts) ? savedProducts : [])
+    } catch {
+      setUsedProducts([])
+    }
+
+    fetch(`/api/products?crop=${encodeURIComponent(f.cropType || 'Rice')}`)
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok || !Array.isArray(data.products)) throw new Error(data.error || 'Product catalog unavailable')
+        setAvailableProducts(data.products)
+      })
+      .catch((error) => {
+        console.error('Product catalog loading failed:', error)
+        setAvailableProducts([])
+      })
 
     fetch(`/api/residue?farmId=${f.id}`)
       .then(async (r) => {
@@ -453,6 +513,11 @@ export default function App() {
     { source: 'ML forecast', note: `Crop cycle confidence: ${cropTimeline[0]?.confidence || 88}% and residue plan aligned`, tone: 'sky' },
   ], [cropTimeline, marketplaceListings.length, stress])
 
+  const filteredProducts = useMemo(() => {
+    const query = productSearch.trim().toLowerCase()
+    return availableProducts.filter((product) => !query || `${product.name} ${product.type} ${product.category} ${product.targets}`.toLowerCase().includes(query))
+  }, [availableProducts, productSearch])
+
   async function sendAgroSaathiMessage(event) {
     event.preventDefault()
     const trimmed = chatInput.trim()
@@ -493,6 +558,7 @@ export default function App() {
               <ArrowLeft className="h-4 w-4" /> AgroVani
             </Link>
             <LanguageSwitcher />
+            <InstallAppButton compact />
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
               <div className="inline-flex rounded-full border border-white/80 bg-white/70 p-1 shadow-[0_8px_20px_rgba(0,0,0,0.05)] backdrop-blur-md">
@@ -887,6 +953,48 @@ export default function App() {
                     </div>
                   )}
                   <BookMachineryCard farm={farm} defaultType="Boom Sprayer" triggerLabel="Book Sprayer Machine" triggerClass="pill-dark mt-4 w-full" />
+                </div>
+              </div>
+
+              <div className="glass-card card-3d">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-sky-600">Crop input history</p>
+                    <h3 className="mt-2 text-2xl font-bold text-slate-900">Tell AgroVani what you already used</h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Select products applied to this {farm?.cropType || 'crop'}. The recommendation API will avoid blind repeats and use current stress signals before suggesting the next step.</p>
+                  </div>
+                  <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">{usedProducts.length} selected</span>
+                </div>
+
+                <div className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+                  <div className="rounded-[24px] border border-slate-200 bg-white/80 p-4">
+                    <input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Search product, type, or target" className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:bg-white" />
+                    <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                      {filteredProducts.map((product) => (
+                        <label key={product.name} className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition ${usedProducts.includes(product.name) ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-slate-50 hover:bg-white'}`}>
+                          <input type="checkbox" checked={usedProducts.includes(product.name)} onChange={() => toggleUsedProduct(product.name)} className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+                          <span className="min-w-0"><span className="block text-sm font-semibold text-slate-900">{product.name}</span><span className="mt-1 block text-[11px] leading-4 text-slate-500">{product.type} · {product.category}</span></span>
+                        </label>
+                      ))}
+                      {!filteredProducts.length && <p className="col-span-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No catalog products match this search.</p>}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-900 p-5 text-white">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-sky-300">Customized recommendation</p>
+                    <p className="mt-3 text-sm leading-6 text-slate-300">Uses selected product history, crop, acreage, state, and live weather stress. Results are guidance, not a chemical prescription.</p>
+                    <button type="button" onClick={getProductRecommendation} disabled={recommendationLoading || !farm} className="mt-4 w-full rounded-full bg-sky-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60">{recommendationLoading ? 'Checking field history...' : 'Get customized recommendation'}</button>
+                    {recommendationError && <p role="alert" className="mt-3 rounded-xl bg-red-500/15 px-3 py-2 text-xs text-red-200">{recommendationError}</p>}
+                    {productRecommendation?.recommendation && (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-4">
+                        <p className="text-lg font-bold text-white">{productRecommendation.recommendation.name}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-sky-200">{productRecommendation.recommendation.type} · {productRecommendation.recommendation.category}</p>
+                        <p className="mt-3 text-sm leading-6 text-slate-200">{productRecommendation.rationale}</p>
+                        <p className="mt-3 text-xs leading-5 text-amber-200">{productRecommendation.safety}</p>
+                        {productRecommendation.alternatives?.length > 0 && <p className="mt-3 text-xs text-slate-300">Alternatives: {productRecommendation.alternatives.map((item) => item.name).join(', ')}</p>}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
