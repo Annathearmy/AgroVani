@@ -67,6 +67,13 @@ create table if not exists public.marketplace_listings (
   seller_id text not null,
   name text not null,
   category text not null,
+  listing_type text not null default 'input',
+  residue_type text,
+  quality_grade text,
+  moisture_percent numeric,
+  quantity_quintals numeric,
+  pickup_district text default '',
+  notes text default '',
   price_inr numeric not null check (price_inr > 0),
   stock_units integer not null default 0 check (stock_units >= 0),
   status text not null default 'active',
@@ -139,6 +146,30 @@ create table if not exists public.dispatch (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  audience text not null,
+  type text not null,
+  title text not null,
+  message text not null,
+  listing_id uuid references public.marketplace_listings(id) on delete cascade,
+  read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.residue_profiles (
+  id uuid primary key default gen_random_uuid(),
+  farm_id uuid references public.farms(id) on delete cascade,
+  residue_type text not null,
+  quality_grade text not null,
+  quantity_quintals numeric not null check (quantity_quintals > 0),
+  moisture_percent numeric,
+  packaging text not null default 'Loose',
+  pickup_ready_date date,
+  notes text default '',
+  updated_at timestamptz not null default now()
+);
+
 alter table public.farms enable row level security;
 alter table public.machinery enable row level security;
 alter table public.district_metrics enable row level security;
@@ -151,3 +182,5 @@ alter table public.tasks enable row level security;
 alter table public.messages enable row level security;
 alter table public.earnings enable row level security;
 alter table public.dispatch enable row level security;
+alter table public.notifications enable row level security;
+alter table public.residue_profiles enable row level security;

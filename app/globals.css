@@ -116,7 +116,7 @@
   }
 
   .page-home { background-color: #081815; }
-  .page-onboarding { background: radial-gradient(circle at 10% 0%, rgba(34, 197, 94, 0.2), transparent 30%), linear-gradient(145deg, #122f2a, #1c2630 70%, #263a36); }
+  .page-onboarding { background: linear-gradient(145deg, #fffdf7 0%, #f7f5ec 58%, #f0f5df 100%); }
   .page-farmer { background: radial-gradient(circle at 90% 0%, rgba(14, 165, 233, 0.14), transparent 28%), linear-gradient(145deg, #071918, #0c1b29 65%, #142c25); }
   .page-seller { background: radial-gradient(circle at 90% 0%, rgba(245, 158, 11, 0.14), transparent 28%), linear-gradient(145deg, #1b160e, #111d28 70%); }
   .page-admin { background: radial-gradient(circle at 90% 0%, rgba(59, 130, 246, 0.2), transparent 28%), linear-gradient(145deg, #172a3b, #202632 70%); }

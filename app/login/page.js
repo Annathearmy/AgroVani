@@ -65,31 +65,31 @@ const roleStyles = {
   },
   seller: {
     ring: 'ring-amber-200',
-    bg: 'from-amber-500 to-orange-500',
-    text: 'text-amber-700',
-    chip: 'bg-amber-50 text-amber-700',
-    button: 'bg-amber-600 hover:bg-amber-700',
+    bg: 'from-lime-500 to-yellow-400',
+    text: 'text-lime-700',
+    chip: 'bg-lime-50 text-lime-700',
+    button: 'bg-lime-600 hover:bg-lime-700',
   },
   admin: {
     ring: 'ring-blue-200',
-    bg: 'from-sky-600 to-blue-600',
-    text: 'text-blue-700',
-    chip: 'bg-blue-50 text-blue-700',
-    button: 'bg-blue-600 hover:bg-blue-700',
+    bg: 'from-emerald-600 to-lime-500',
+    text: 'text-emerald-700',
+    chip: 'bg-emerald-50 text-emerald-700',
+    button: 'bg-emerald-600 hover:bg-emerald-700',
   },
   driver: {
     ring: 'ring-violet-200',
-    bg: 'from-violet-600 to-indigo-600',
-    text: 'text-violet-700',
-    chip: 'bg-violet-50 text-violet-700',
-    button: 'bg-violet-600 hover:bg-violet-700',
+    bg: 'from-yellow-500 to-amber-400',
+    text: 'text-yellow-700',
+    chip: 'bg-yellow-50 text-yellow-700',
+    button: 'bg-yellow-600 hover:bg-yellow-700',
   },
   buyer: {
     ring: 'ring-sky-200',
-    bg: 'from-sky-500 to-cyan-500',
-    text: 'text-sky-700',
-    chip: 'bg-sky-50 text-sky-700',
-    button: 'bg-sky-600 hover:bg-sky-700',
+    bg: 'from-emerald-500 to-yellow-400',
+    text: 'text-emerald-700',
+    chip: 'bg-emerald-50 text-emerald-700',
+    button: 'bg-emerald-600 hover:bg-emerald-700',
   },
 }
 
@@ -140,23 +140,23 @@ export default function LoginPage() {
   return (
     <main className="page-onboarding min-h-screen text-slate-800">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-[28px] border border-white/25 bg-white/20 shadow-[0_30px_80px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <div className="overflow-hidden rounded-[22px] border border-stone-200 bg-[#fffdf7] shadow-[0_20px_60px_rgba(68,64,48,0.12)]">
           <div className="flex flex-wrap items-center justify-end gap-3 px-6 pt-4 lg:px-10"><InstallAppButton compact /><LanguageSwitcher /></div>
-          <div className="h-2 w-full bg-gradient-to-r from-[#ff9933] via-[#ffffff] to-[#138808]" />
+          <div className="h-1.5 w-full bg-gradient-to-r from-emerald-600 via-lime-400 to-yellow-400" />
 
           <div className="flex flex-col gap-0 lg:flex-row">
-            <section className="flex-1 bg-slate-950 px-6 py-8 text-white lg:px-10 lg:py-10">
-              <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-5">
+            <section className="flex-1 bg-[#fffdf7] px-6 py-8 text-slate-800 lg:px-10 lg:py-10">
+              <div className="flex items-center justify-between gap-4 border-b border-stone-200 pb-5">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-300">Government of India</p>
-                  <h1 className="mt-2 text-2xl font-bold tracking-tight text-white">AgroVani Agriculture Portal</h1>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-emerald-700">AgroVani</p>
+                  <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Agriculture workspace</h1>
                 </div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-white/5 text-emerald-300">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
                   <ShieldCheck className="h-6 w-6" />
                 </div>
               </div>
 
-              <div className="mt-8 rounded-[24px] border border-white/10 bg-white/5 p-5 shadow-inner backdrop-blur-sm">
+              <div className="mt-8 rounded-[20px] border border-stone-200 bg-white p-5">
                 <div className="flex items-center gap-3">
                   <div className={`rounded-full bg-gradient-to-r ${roleStyles[currentRole.key].bg} p-2`}>
                     {currentRole.key === 'farmer' && <UserRound className="h-5 w-5 text-white" />}
@@ -165,8 +165,8 @@ export default function LoginPage() {
                     {currentRole.key === 'driver' && <Truck className="h-5 w-5 text-white" />}
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-slate-300">Access Portal</p>
-                    <p className="text-xl font-semibold text-white">{currentRole.label} Login</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Workspace access</p>
+                    <p className="text-xl font-semibold text-slate-900">{currentRole.label} Login</p>
                   </div>
                 </div>
 
@@ -174,34 +174,34 @@ export default function LoginPage() {
                   {currentRole.badge}
                 </div>
 
-                <ul className="mt-6 space-y-3 text-sm text-slate-200">
+                <ul className="mt-6 space-y-3 text-sm text-slate-600">
                   <li className="flex items-center gap-3">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     Secure access to sector-specific dashboards
                   </li>
                   <li className="flex items-center gap-3">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     Farmer, seller and admin workflows kept separate
                   </li>
                   <li className="flex items-center gap-3">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     Updated to support agricultural operations and reporting
                   </li>
                 </ul>
               </div>
 
               <div className="mt-8 grid gap-4 sm:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-slate-300">District</p>
-                  <p className="mt-2 text-lg font-semibold text-white">Punjab</p>
+                <div className="rounded-2xl border border-stone-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Region</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">India</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-slate-300">Portal</p>
-                  <p className="mt-2 text-lg font-semibold text-white">Agri-One</p>
+                <div className="rounded-2xl border border-stone-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Mode</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">Role based</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-slate-300">Support</p>
-                  <p className="mt-2 text-lg font-semibold text-white">24/7</p>
+                <div className="rounded-2xl border border-stone-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Support</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">AgroSaathi</p>
                 </div>
               </div>
             </section>

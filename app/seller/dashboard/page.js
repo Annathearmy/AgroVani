@@ -16,7 +16,7 @@ export default function SellerDashboard() {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('All')
   const [showForm, setShowForm] = useState(false)
-  const [draft, setDraft] = useState({ name: '', category: 'Biostimulant', stock: 1, price: '' })
+  const [draft, setDraft] = useState({ name: '', category: 'Biostimulant', stock: 1, price: '', residueType: '', qualityGrade: '', moisturePercent: '', quantityQuintals: '', pickupDistrict: '', notes: '' })
 
   const filteredListings = useMemo(() => listings.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()) && (category === 'All' || item.category === category)), [listings, query, category])
   const inventory = listings.reduce((sum, item) => sum + Number(item.stockUnits || 0), 0)
@@ -66,7 +66,7 @@ export default function SellerDashboard() {
   function addListing(event) {
     event.preventDefault()
     if (!draft.name || !draft.price) return
-    fetch(apiUrl('/api/marketplace/listings'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sellerId, name: draft.name, category: draft.category, stockUnits: draft.stock, priceInr: draft.price }) })
+    fetch(apiUrl('/api/marketplace/listings'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sellerId, name: draft.name, category: draft.category, stockUnits: draft.stock, priceInr: draft.price, residueType: draft.residueType, qualityGrade: draft.qualityGrade, moisturePercent: draft.moisturePercent, quantityQuintals: draft.quantityQuintals, pickupDistrict: draft.pickupDistrict, notes: draft.notes }) })
       .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Unable to publish listing'); setListings((items) => [data, ...items]); setDraft({ name: '', category: 'Biostimulant', stock: 1, price: '' }); setShowForm(false) })
       .catch((saveError) => setError(saveError.message))
   }

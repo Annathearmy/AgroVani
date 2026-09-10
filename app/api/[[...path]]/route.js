@@ -99,6 +99,8 @@ function createMemoryDb() {
     marketplace_listings: createMemoryCollection(),
     marketplace_orders: createMemoryCollection(),
     admin_reviews: createMemoryCollection(),
+    notifications: createMemoryCollection(),
+    residue_profiles: createMemoryCollection(),
     tasks: createMemoryCollection(),
     messages: createMemoryCollection(),
     earnings: createMemoryCollection(),
@@ -721,11 +723,35 @@ async function handleRoute(request, { params }) {
       if (!body.sellerId || !body.name || Number(body.priceInr) <= 0) return ok({ error: 'sellerId, name and a positive price are required' }, 400)
       const listing = {
         id: uuidv4(), sellerId: body.sellerId, name: body.name.trim(), category: body.category || 'Other',
-        priceInr: Number(body.priceInr), stockUnits: Math.max(0, Number(body.stockUnits) || 0), status: 'active',
+        listingType: body.listingType || 'input', residueType: body.residueType || null, qualityGrade: body.qualityGrade || null,
+        moisturePercent: body.moisturePercent != null ? Number(body.moisturePercent) : null, quantityQuintals: body.quantityQuintals != null ? Number(body.quantityQuintals) : null,
+        pickupDistrict: body.pickupDistrict || '', notes: body.notes || '', priceInr: Number(body.priceInr), stockUnits: Math.max(0, Number(body.stockUnits) || 0), status: 'active',
         createdAt: new Date(), updatedAt: new Date(),
       }
       await db.collection('marketplace_listings').insertOne(listing)
+      if (listing.listingType === 'residue_need') {
+        await db.collection('notifications').insertOne({
+          id: uuidv4(), audience: 'farmer', type: 'buyer_listing', title: 'New buyer residue requirement',
+          message: `${listing.sellerId} needs ${listing.quantityQuintals || 'available'} quintals of ${listing.residueType || 'crop residue'} in ${listing.pickupDistrict || 'your area'}.`,
+          listingId: listing.id, read: false, createdAt: new Date(),
+        })
+      }
       return ok(listing, 201)
+    }
+
+    if (route === '/notifications' && method === 'GET') {
+      const audience = searchParams.get('audience') || 'farmer'
+      const notifications = await db.collection('notifications').find({ audience }).sort({ createdAt: -1 }).limit(100).toArray()
+      return ok(notifications)
+    }
+
+    if (route === '/notifications' && method === 'PATCH') {
+      const body = await request.json()
+      const notification = await db.collection('notifications').findOne({ id: body.id })
+      if (!notification) return ok({ error: 'Notification not found' }, 404)
+      notification.read = true
+      await db.collection('notifications').updateOne({ id: notification.id }, { $set: notification })
+      return ok(notification)
     }
 
     if (route === '/marketplace/orders' && method === 'GET') {
@@ -904,6 +930,21 @@ async function handleRoute(request, { params }) {
         activeOrderQuantity: orders.reduce((total, order) => total + Math.max(0, Number(order.quantity) || 0), 0),
       })
       return ok({ ...result, ...fieldMetrics })
+    }
+
+    if (route === '/residue/profile' && method === 'GET') {
+      const farmId = searchParams.get('farmId')
+      const profile = farmId ? await db.collection('residue_profiles').findOne({ farmId }) : null
+      return ok(profile || {})
+    }
+
+    if (route === '/residue/profile' && method === 'POST') {
+      const body = await request.json()
+      if (!body.farmId || !body.residueType || !body.qualityGrade || Number(body.quantityQuintals) <= 0) return ok({ error: 'farmId, residue type, quality grade and positive quantity are required' }, 400)
+      const profile = { id: uuidv4(), farmId: body.farmId, residueType: body.residueType, qualityGrade: body.qualityGrade, quantityQuintals: Number(body.quantityQuintals), moisturePercent: body.moisturePercent != null ? Number(body.moisturePercent) : null, packaging: body.packaging || 'Loose', pickupReadyDate: body.pickupReadyDate || null, notes: body.notes || '', updatedAt: new Date() }
+      const existing = await db.collection('residue_profiles').findOne({ farmId: profile.farmId })
+      if (existing) { profile.id = existing.id; await db.collection('residue_profiles').updateOne({ id: existing.id }, { $set: profile }) } else await db.collection('residue_profiles').insertOne(profile)
+      return ok(profile)
     }
 
     if (route === '/machinery' && method === 'GET') {

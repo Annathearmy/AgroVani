@@ -62,6 +62,9 @@ export default function App() {
   const [machinery, setMachinery] = useState([])
   const [loading, setLoading] = useState(false)
   const [marketplaceListings, setMarketplaceListings] = useState([])
+  const [buyerNotifications, setBuyerNotifications] = useState([])
+  const [residueProfile, setResidueProfile] = useState({ residueType: 'Paddy straw', qualityGrade: 'Standard', quantityQuintals: '', moisturePercent: '', packaging: 'Loose', pickupReadyDate: '', notes: '' })
+  const [residueSaveMessage, setResidueSaveMessage] = useState('')
   const [marketplaceMessage, setMarketplaceMessage] = useState('')
   const [availableProducts, setAvailableProducts] = useState([])
   const [usedProducts, setUsedProducts] = useState([])
@@ -410,6 +413,8 @@ export default function App() {
       })
       .catch((error) => console.error('Agri loop loading failed:', error))
 
+    fetch(apiUrl(`/api/residue/profile?farmId=${f.id}`)).then((r) => r.json()).then((profile) => { if (profile?.farmId) setResidueProfile((current) => ({ ...current, ...profile })) }).catch(() => {})
+
     fetch(apiUrl(`/api/machinery?district=${encodeURIComponent(f.district || '')}`))
       .then(async (r) => {
         const data = await r.json()
@@ -429,6 +434,10 @@ export default function App() {
         setMarketplaceListings(data.slice(0, 4))
       })
       .catch((error) => console.error('Marketplace loading failed:', error))
+
+    fetch(apiUrl('/api/notifications?audience=farmer'))
+      .then(async (r) => { const data = await r.json(); if (!r.ok || !Array.isArray(data)) throw new Error(data.error || 'Notifications unavailable'); setBuyerNotifications(data) })
+      .catch((error) => console.error('Buyer notification loading failed:', error))
 
     fetch(apiUrl(`/api/stress?farmId=${f.id}`))
       .then(async (r) => {
@@ -479,6 +488,15 @@ export default function App() {
     } catch (error) {
       setMarketplaceMessage(error.message || 'Unable to place order')
     }
+  }
+
+  async function saveResidueProfile(event) {
+    event.preventDefault()
+    if (!farm) return
+    const response = await fetch(apiUrl('/api/residue/profile'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...residueProfile, farmId: farm.id }) })
+    const data = await response.json()
+    setResidueSaveMessage(response.ok ? 'Residue details updated for buyers.' : data.error || 'Unable to update residue details')
+    if (response.ok) setResidueProfile((current) => ({ ...current, ...data }))
   }
 
   useEffect(() => { if (farm) loadData(farm) }, [farm, loadData])
@@ -592,6 +610,10 @@ export default function App() {
 
           {tab === 'residue' && (
             <div className="grid gap-6 lg:grid-cols-3">
+              <form onSubmit={saveResidueProfile} className="glass-card card-3d lg:col-span-3">
+                <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-600">Residue supply update</p><h2 className="mt-2 text-2xl font-bold text-slate-900">Tell buyers what your field has</h2></div>{residueSaveMessage && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">{residueSaveMessage}</span>}</div>
+                <div className="mt-5 grid gap-3 md:grid-cols-3"><select value={residueProfile.residueType} onChange={(event) => setResidueProfile({ ...residueProfile, residueType: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option>Paddy straw</option><option>Wheat straw</option><option>Corn residue</option><option>Cotton stalk</option><option>Mixed biomass</option></select><select value={residueProfile.qualityGrade} onChange={(event) => setResidueProfile({ ...residueProfile, qualityGrade: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option>Standard</option><option>Premium</option><option>Industrial</option></select><input required type="number" min="0.1" step="0.1" value={residueProfile.quantityQuintals} onChange={(event) => setResidueProfile({ ...residueProfile, quantityQuintals: event.target.value })} placeholder="Quantity (quintals)" className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm" /><input type="number" min="0" max="100" step="0.1" value={residueProfile.moisturePercent} onChange={(event) => setResidueProfile({ ...residueProfile, moisturePercent: event.target.value })} placeholder="Moisture %" className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm" /><select value={residueProfile.packaging} onChange={(event) => setResidueProfile({ ...residueProfile, packaging: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option>Loose</option><option>Baled</option><option>Bagged</option></select><input type="date" value={residueProfile.pickupReadyDate} onChange={(event) => setResidueProfile({ ...residueProfile, pickupReadyDate: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm" /><textarea value={residueProfile.notes} onChange={(event) => setResidueProfile({ ...residueProfile, notes: event.target.value })} placeholder="Quality notes, contamination, access or pickup instructions" className="min-h-20 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm md:col-span-2" /><button className="pill-dark">Update residue availability</button></div>
+              </form>
               <div className="glass-card card-3d">
                 <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500">{copy.residueForecast}</p>
                 <p className="mt-4 text-5xl font-bold tracking-tight text-slate-900">{residue ? (residue.residueTons / (farm?.areaInAcres || 1)).toFixed(1) : '—'} <span className="text-lg font-medium text-slate-500">t/acre</span></p>
@@ -643,6 +665,8 @@ export default function App() {
                   </div>
                   <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">AgriLoop buyers</span>
                 </div>
+
+                {buyerNotifications.length > 0 && <div className="mt-4 space-y-2">{buyerNotifications.slice(0, 3).map((notification) => <div key={notification.id} className="flex items-start justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900"><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">New buyer requirement</p><p className="mt-1 text-sm font-semibold">{notification.message}</p></div><button type="button" onClick={() => { fetch(apiUrl('/api/notifications'), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: notification.id }) }).catch(() => {}); setBuyerNotifications((items) => items.filter((item) => item.id !== notification.id)) }} className="text-xs font-semibold text-amber-700">Dismiss</button></div>)}</div>}
 
                 {marketplaceMessage && (
                   <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{marketplaceMessage}</div>
