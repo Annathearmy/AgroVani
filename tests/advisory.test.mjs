@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { predictYield, backtestMetrics } from '../lib/services/yieldModel.js'
-import { compareMsp, lookupMandiPrices } from '../lib/services/mandiService.js'
-import { buildFarmReportPdf, createWhatsAppText } from '../lib/services/reportService.js'
+import { predictYield, backtestMetrics } from '../lib/server/services/yieldModel.js'
+import { compareMsp, lookupMandiPrices } from '../lib/server/services/mandiService.js'
+import { buildFarmReportPdf, createWhatsAppText } from '../lib/server/services/reportService.js'
 
 test('yield prediction returns range, confidence, risk and non-causal disclaimer', () => {
   const result = predictYield({ crop: 'Rice', areaInAcres: 5, soilPh: 6.4, nitrogenKgPerHa: 95, rainfallMm: 640 })

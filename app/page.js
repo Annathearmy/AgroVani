@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { Wind, Droplet, Leaf, ArrowRight, Sparkles, Sprout } from 'lucide-react'
 import dynamic from 'next/dynamic'
-import { Wind, Droplet, Leaf, ArrowRight, Sparkles } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import InstallAppButton from '@/components/InstallAppButton'
 const SpatialFieldScene = dynamic(() => import('@/components/farmer/SpatialFieldSceneClient'), { ssr: false })
@@ -14,6 +13,19 @@ const impactCards = [
   { title: 'Reduce stubble burning', description: 'Protect air quality with residue alternatives and local machinery support.', icon: Wind },
   { title: 'Beat abiotic stress', description: 'Live heat, frost and drought scores drive precise biostimulant decisions.', icon: Droplet },
   { title: 'Create residue income', description: 'Find buyers and processing plants for stubble off-take and steady income.', icon: Leaf },
+]
+
+const residueSignals = [
+  { label: 'Residue recovered', value: '84%' },
+  { label: 'Burn risk', value: 'Low' },
+  { label: 'Buyer demand', value: 'High' },
+  { label: 'Next crop', value: 'Planned' },
+]
+
+const driverFleet = [
+  { name: 'Harjit Singh', status: 'Available', eta: '18 min', load: 'Baler pickup' },
+  { name: 'Ravi Kumar', status: 'On route', eta: '32 min', load: 'Residue collection' },
+  { name: 'Amanpreet Kaur', status: 'Available', eta: '24 min', load: 'Seed delivery' },
 ]
 
 export default function App() {
@@ -139,6 +151,8 @@ export default function App() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div><div className="flex items-center gap-3 text-emerald-700"><Sprout className="h-6 w-6" /><p className="text-[10px] font-bold uppercase tracking-[0.3em]">Seed marketplace</p></div><h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-5xl">Start with the right seed</h2><p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">Explore trusted seed varieties for rice, wheat, maize, cotton, mustard and vegetables.</p></div>
             <Link href="/login" className="pill-dark">Shop seeds <ArrowRight className="ml-2 h-4 w-4" /></Link>
+          </div>
+        </div>
         <div className="glass-card relative overflow-hidden border border-emerald-100/70 bg-white/75">
           <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-r from-emerald-300/20 via-emerald-100/10 to-sky-300/20" />
           <div className="relative">

@@ -1,168 +1,23 @@
-import { MongoClient } from 'mongodb'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { v4 as uuidv4 } from 'uuid'
 import { NextResponse } from 'next/server'
 import { AccessToken } from 'livekit-server-sdk'
-import { fetchWeather } from '@/lib/adapters/weather'
-import { fetchSprayWindow, fetchHydricStress, geocodeLocation } from '@/lib/adapters/cehub'
+import { fetchWeather } from '@/lib/server/adapters/weather'
+import { fetchSprayWindow, fetchHydricStress, geocodeLocation } from '@/lib/server/adapters/cehub'
 import { computeStressDiagnostic, computeFarmEconomics, CROP_LIST, PRODUCT_CATALOG, recommendProduct } from '@/lib/calculations/cropRecommendation'
 import { computeResidue, computeFieldReadiness, DISTRICT_DATA, getDistrictData } from '@/lib/calculations/residueRecommendation'
 import { calculateIncentivePlan, buildCropCalendar, calculateYieldProjection } from '@/lib/calculations/agriLoop'
-import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/ai/gemini'
-import { createSupabaseDb, getSupabaseServerClient } from '@/lib/supabase/server'
-import { predictYield } from '@/lib/services/yieldModel'
-import { compareMsp, lookupMandiPrices } from '@/lib/services/mandiService'
-import { buildFarmReportPdf, createWhatsAppText } from '@/lib/services/reportService'
-import { fetchIndiaWeather } from '@/lib/adapters/cloudNextWeather'
+import { buildGeminiVisionPrompt, parseGeminiResponse, mapSymptomsToRecommendation } from '@/lib/server/ai/gemini'
+import { connectToDatabase } from '@/lib/server/database'
+import { predictYield } from '@/lib/server/services/yieldModel'
+import { compareMsp, lookupMandiPrices } from '@/lib/server/services/mandiService'
+import { buildFarmReportPdf, createWhatsAppText } from '@/lib/server/services/reportService'
+import { fetchIndiaWeather } from '@/lib/server/adapters/cloudNextWeather'
 import { plans } from '@/lib/data/plans'
-
-const runtimeStore = globalThis
-let client = runtimeStore.__agrovaniMongoClient || null
-let db = runtimeStore.__agrovaniMongoDb || null
-let memoryDb = runtimeStore.__agrovaniMemoryDb || null
-let supabaseDb = runtimeStore.__agrovaniSupabaseDb || null
-
-function createMemoryCollection(initialRows = []) {
-  const rows = [...initialRows]
-
-  const makeQueryMatcher = (query = {}) => (row) => Object.entries(query).every(([key, value]) => {
-    if (value === undefined) return true
-    if (value && typeof value === 'object' && Array.isArray(value.$in)) return value.$in.includes(row[key])
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-    if (Array.isArray(value.$in)) return value.$in.includes(row[key])
-      return Object.entries(value).every(([nestedKey, nestedValue]) => {
-        const source = row[key]
-        if (source && typeof source === 'object') return source[nestedKey] === nestedValue
-        return false
-      })
-    }
-    return row[key] === value
-  })
-
-  return {
-    async countDocuments() {
-      return rows.length
-    },
-    async insertMany(items) {
-      rows.push(...items)
-      return { insertedCount: items.length }
-    },
-    async insertOne(item) {
-      rows.push(item)
-      return { insertedId: item.id || rows.length }
-    },
-    async updateOne(query, update) {
-      const row = rows.find(makeQueryMatcher(query))
-      if (!row) return { matchedCount: 0, modifiedCount: 0 }
-      Object.assign(row, update.$set || update)
-      return { matchedCount: 1, modifiedCount: 1 }
-    },
-    find(query = {}) {
-      const filtered = rows.filter(makeQueryMatcher(query))
-
-      let sortSpec = null
-      let limitValue = null
-
-      return {
-        sort(spec) {
-          sortSpec = spec
-          return this
-        },
-        limit(value) {
-          limitValue = value
-          return this
-        },
-        async toArray() {
-          let result = [...filtered]
-          if (sortSpec) {
-            const entries = Object.entries(sortSpec)
-            result.sort((a, b) => {
-              for (const [key, direction] of entries) {
-                const delta = (a[key] ?? 0) > (b[key] ?? 0) ? 1 : -1
-                if ((a[key] ?? 0) === (b[key] ?? 0)) continue
-                return direction === -1 ? -delta : delta
-              }
-              return 0
-            })
-          }
-          if (limitValue !== null) result = result.slice(0, limitValue)
-          return result
-        },
-      }
-    },
-    async findOne(query = {}) {
-      return rows.find(makeQueryMatcher(query)) || null
-    },
-  }
-}
-
-function createMemoryDb() {
-  const collections = {
-    farms: createMemoryCollection(),
-    machinery: createMemoryCollection(),
-    district_metrics: createMemoryCollection(),
-    stress_diagnostic_logs: createMemoryCollection(),
-    bookings: createMemoryCollection(),
-    marketplace_listings: createMemoryCollection(),
-    marketplace_orders: createMemoryCollection(),
-    buyer_needs: createMemoryCollection(),
-    admin_reviews: createMemoryCollection(),
-    notifications: createMemoryCollection(),
-    residue_profiles: createMemoryCollection(),
-    tasks: createMemoryCollection(),
-    messages: createMemoryCollection(),
-    earnings: createMemoryCollection(),
-    dispatch: createMemoryCollection(),
-  }
-
-  return {
-    collection(name) {
-      if (!collections[name]) collections[name] = createMemoryCollection()
-      return collections[name]
-    },
-  }
-}
-
-async function connectToMongo() {
-  if (memoryDb) return memoryDb
-
-  if (!process.env.MONGO_URL || !process.env.DB_NAME) {
-    memoryDb = createMemoryDb()
-    runtimeStore.__agrovaniMemoryDb = memoryDb
-    return memoryDb
-  }
-
-  try {
-    if (!client) {
-      client = new MongoClient(process.env.MONGO_URL, { serverSelectionTimeoutMS: 3000, connectTimeoutMS: 3000 })
-      await client.connect()
-      db = client.db(process.env.DB_NAME)
-    }
-    if (db) return db
-    throw new Error('MongoDB connection did not return a database')
-  } catch (error) {
-    console.warn('MongoDB unavailable, falling back to in-memory store for Vercel deployment:', error.message)
-    client = null
-    memoryDb = createMemoryDb()
-    runtimeStore.__agrovaniMongoClient = null
-    runtimeStore.__agrovaniMemoryDb = memoryDb
-    return memoryDb
-  }
-}
-
-function connectToDatabase() {
-  if (supabaseDb) return supabaseDb
-  const supabase = getSupabaseServerClient()
-  if (supabase) {
-    supabaseDb = createSupabaseDb(supabase)
-    runtimeStore.__agrovaniSupabaseDb = supabaseDb
-    return supabaseDb
-  }
-  return connectToMongo()
-}
+import { farmCreateSchema, listingCreateSchema, orderCreateSchema, validationError } from '@/lib/contracts/api'
 
 function handleCORS(response) {
-  response.headers.set('Access-Control-Allow-Origin', process.env.CORS_ORIGINS || '*')
+  response.headers.set('Access-Control-Allow-Origin', process.env.CORS_ORIGINS || process.env.NEXT_PUBLIC_BASE_URL || '*')
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
   response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   response.headers.set('Access-Control-Allow-Credentials', 'true')
@@ -178,6 +33,8 @@ function pdf(data) {
   response.headers.set('Content-Type', 'application/pdf')
   response.headers.set('Content-Disposition', 'inline; filename="agrovani-farm-report.pdf"')
   return handleCORS(response)
+}
+
 function buildProductRecommendation({ crop, state, areaInAcres, usedProducts = [], diagnostic = {} }) {
   const usedNames = new Set(usedProducts.map((name) => String(name).trim().toLowerCase()).filter(Boolean))
   const compatible = PRODUCT_CATALOG.filter((product) => !product.crops || product.crops.includes(crop))
@@ -572,6 +429,8 @@ async function handleRoute(request, { params }) {
       const valid = expected.length === razorpaySignature.length && timingSafeEqual(Buffer.from(expected), Buffer.from(razorpaySignature))
       if (!valid) return ok({ error: 'Invalid Razorpay payment signature' }, 400)
       return ok({ verified: true, paymentId: razorpayPaymentId, orderId: razorpayOrderId, planId: body.planId || null })
+    }
+
     if (route === '/recommendations' && method === 'POST') {
       const body = await request.json()
       const crop = body.crop || 'Rice'
@@ -600,25 +459,6 @@ async function handleRoute(request, { params }) {
 
     if ((route === '/' || route === '/root') && method === 'GET') {
       return ok({ message: 'AgroVani API', crops: CROP_LIST })
-    }
-
-    if (route === '/mandi' && method === 'GET') {
-      const endpoint = process.env.GOVT_MANDI_API_URL
-      const apiKey = process.env.GOVT_MANDI_API_KEY
-      if (!endpoint || !apiKey) return ok({ source: 'local_fallback', records: [
-        { commodity: 'Rice', market: 'Configure government feed', minPrice: '—', modalPrice: '—', maxPrice: '—' },
-      ], message: 'Government mandi API is not configured. Prices are intentionally withheld.' })
-      const response = await fetch(`${endpoint}${endpoint.includes('?') ? '&' : '?'}api-key=${encodeURIComponent(apiKey)}&format=json&limit=50`, { cache: 'no-store', signal: AbortSignal.timeout(8000) })
-      const data = await response.json()
-      if (!response.ok) return ok({ source: 'government', records: [], error: 'Government mandi API request failed.' }, 502)
-      const records = (data.records || []).map((item) => ({
-        commodity: item.commodity || item.Commodity || 'Unknown',
-        market: item.market || item.Market || item.market_name || 'Unknown',
-        minPrice: item.min_price ?? item.Min_Price ?? item.min_price_inr ?? '—',
-        modalPrice: item.modal_price ?? item.Modal_Price ?? item.modal_price_inr ?? '—',
-        maxPrice: item.max_price ?? item.Max_Price ?? item.max_price_inr ?? '—',
-      }))
-      return ok({ source: 'government', records })
     }
 
     if (route === '/tasks' && method === 'GET') {
@@ -696,19 +536,17 @@ async function handleRoute(request, { params }) {
 
     if (route === '/farms' && method === 'POST') {
       const body = await request.json()
+      const parsedBody = farmCreateSchema.safeParse(body)
+      if (!parsedBody.success) return ok({ error: validationError(parsedBody) }, 400)
+      const farmInput = parsedBody.data
       const farm = {
-        id: uuidv4(), ownerId: body.ownerId || body.email || null,
-        name: body.name || 'Farmer',
-        village: body.village || '',
-        district: body.district || 'India',
-        state: body.state || '',
-        cropType: body.cropType || 'Rice',
-        areaInAcres: Number(body.areaInAcres) || 1,
-        latitude: Number(body.latitude) || 20.5937,
-        longitude: Number(body.longitude) || 78.9629,
-        soilPh: body.soilPh != null ? Number(body.soilPh) : null,
-        nitrogenKgPerHa: body.nitrogenKgPerHa != null ? Number(body.nitrogenKgPerHa) : null,
-        locale: body.locale || 'en',
+        id: uuidv4(), ownerId: farmInput.ownerId || farmInput.email || null,
+        name: farmInput.name || 'Farmer', village: farmInput.village || '',
+        district: farmInput.district || 'India', state: farmInput.state || '',
+        cropType: farmInput.cropType || 'Rice', areaInAcres: farmInput.areaInAcres || 1,
+        latitude: farmInput.latitude ?? 20.5937, longitude: farmInput.longitude ?? 78.9629,
+        soilPh: farmInput.soilPh ?? null, nitrogenKgPerHa: farmInput.nitrogenKgPerHa ?? null,
+        locale: farmInput.locale || 'en',
         createdAt: new Date(),
       }
       await db.collection('farms').insertOne(farm)
@@ -860,14 +698,17 @@ async function handleRoute(request, { params }) {
 
     if (route === '/marketplace/listings' && method === 'POST') {
       const body = await request.json()
-      if (!body.sellerId || !body.name || Number(body.priceInr) <= 0) return ok({ error: 'sellerId, name and a positive price are required' }, 400)
+      const parsedBody = listingCreateSchema.safeParse(body)
+      if (!parsedBody.success) return ok({ error: validationError(parsedBody) }, 400)
+      const listingInput = parsedBody.data
       const listing = {
-        id: uuidv4(), sellerId: body.sellerId, sellerName: body.sellerName || body.sellerId, sellerState: body.sellerState || 'India', sellerPlace: body.sellerPlace || 'India', expectedDeliveryDays: Number(body.expectedDeliveryDays) || 7, name: body.name.trim(), category: body.category || 'Other',
-        priceInr: Number(body.priceInr), stockUnits: Math.max(0, Number(body.stockUnits) || 0), status: 'active',
-        id: uuidv4(), sellerId: body.sellerId, name: body.name.trim(), category: body.category || 'Other',
-        listingType: body.listingType || 'input', residueType: body.residueType || null, qualityGrade: body.qualityGrade || null,
-        moisturePercent: body.moisturePercent != null ? Number(body.moisturePercent) : null, quantityQuintals: body.quantityQuintals != null ? Number(body.quantityQuintals) : null,
-        pickupDistrict: body.pickupDistrict || '', notes: body.notes || '', priceInr: Number(body.priceInr), stockUnits: Math.max(0, Number(body.stockUnits) || 0), status: 'active',
+        id: uuidv4(), sellerId: listingInput.sellerId, name: listingInput.name, category: listingInput.category || 'Other',
+        sellerName: listingInput.sellerName || listingInput.sellerId, sellerState: listingInput.sellerState || 'India', sellerPlace: listingInput.sellerPlace || 'India',
+        expectedDeliveryDays: listingInput.expectedDeliveryDays || 7, listingType: listingInput.listingType || 'input',
+        residueType: listingInput.residueType || null, qualityGrade: listingInput.qualityGrade || null,
+        moisturePercent: listingInput.moisturePercent ?? null, quantityQuintals: listingInput.quantityQuintals ?? null,
+        pickupDistrict: listingInput.pickupDistrict || '', notes: listingInput.notes || '', priceInr: listingInput.priceInr,
+        stockUnits: listingInput.stockUnits || 0, status: 'active',
         createdAt: new Date(), updatedAt: new Date(),
       }
       await db.collection('marketplace_listings').insertOne(listing)
@@ -906,9 +747,11 @@ async function handleRoute(request, { params }) {
 
     if (route === '/marketplace/orders' && method === 'POST') {
       const body = await request.json()
-      const quantity = Math.max(1, Number(body.quantity) || 1)
-      if (!body.sellerId || !body.listingId) return ok({ error: 'sellerId and listingId are required' }, 400)
-      const listing = await db.collection('marketplace_listings').findOne({ id: body.listingId })
+      const parsedBody = orderCreateSchema.safeParse(body)
+      if (!parsedBody.success) return ok({ error: validationError(parsedBody) }, 400)
+      const orderInput = parsedBody.data
+      const quantity = orderInput.quantity
+      const listing = await db.collection('marketplace_listings').findOne({ id: orderInput.listingId })
       if (!listing) return ok({ error: 'Listing not found' }, 404)
       if (listing.status !== 'active') return ok({ error: 'This listing is no longer active' }, 409)
       if (Number(listing.stockUnits) < quantity) return ok({ error: `Only ${listing.stockUnits} units remain in this listing` }, 409)
@@ -916,12 +759,12 @@ async function handleRoute(request, { params }) {
       listing.updatedAt = new Date()
       await db.collection('marketplace_listings').updateOne({ id: listing.id }, { $set: listing })
       const order = {
-        id: uuidv4(), listingId: body.listingId, farmId: body.farmId || null, buyerId: body.buyerId || null,
-        sellerId: body.sellerId, sellerName: listing.sellerName || body.sellerName || body.sellerId,
-        sellerState: listing.sellerState || body.sellerState || 'India', sellerPlace: listing.sellerPlace || body.sellerPlace || 'India',
-        expectedDeliveryDays: Number(listing.expectedDeliveryDays || body.expectedDeliveryDays || 7),
-        expectedDeliveryAt: new Date(Date.now() + Number(listing.expectedDeliveryDays || body.expectedDeliveryDays || 7) * 86400000),
-        listingName: listing.name, quantity, totalInr: Number(body.totalInr) || Number(listing.priceInr) * quantity,
+        id: uuidv4(), listingId: orderInput.listingId, farmId: orderInput.farmId || null, buyerId: orderInput.buyerId || null,
+        sellerId: orderInput.sellerId, sellerName: listing.sellerName || orderInput.sellerName || orderInput.sellerId,
+        sellerState: listing.sellerState || orderInput.sellerState || 'India', sellerPlace: listing.sellerPlace || orderInput.sellerPlace || 'India',
+        expectedDeliveryDays: Number(listing.expectedDeliveryDays || orderInput.expectedDeliveryDays || 7),
+        expectedDeliveryAt: new Date(Date.now() + Number(listing.expectedDeliveryDays || orderInput.expectedDeliveryDays || 7) * 86400000),
+        listingName: listing.name, quantity, totalInr: orderInput.totalInr || Number(listing.priceInr) * quantity,
         status: 'new', createdAt: new Date(), updatedAt: new Date(),
       }
       await db.collection('marketplace_orders').insertOne(order)

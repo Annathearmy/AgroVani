@@ -101,7 +101,7 @@
 | **Database & Auth** | [Supabase](https://supabase.com/) (PostgreSQL with Row Level Security) |
 | **Maps & Geospatial** | [Leaflet](https://leafletjs.com/) / React-Leaflet |
 | **Internationalization** | Custom Context-driven i18n (`lib/i18n`) supporting EN, HI, PA |
-| **Weather & External Data** | Dedicated API adapters (`lib/adapters/weather.js`, `cehub.js`) |
+| **Weather & External Data** | Dedicated server API adapters (`lib/server/adapters/weather.js`, `cehub.js`) |
 | **Testing & Quality** | Pytest-backed test runs & test ID instrumentation (`lib/constants/testIds`) |
 | **Deployment** | [Vercel](https://vercel.com/) |
 

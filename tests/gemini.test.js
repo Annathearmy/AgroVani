@@ -5,8 +5,8 @@ const {
   buildGeminiVisionPrompt,
   parseGeminiResponse,
   mapSymptomsToRecommendation,
-} = require('../lib/ai/gemini')
-const { getSupabaseServerClient } = require('../lib/supabase/server')
+} = require('../lib/server/ai/gemini')
+const { getSupabaseServerClient } = require('../lib/server/supabase')
 
 test('buildGeminiVisionPrompt includes crop and diagnosis instructions', () => {
   const prompt = buildGeminiVisionPrompt({ cropType: 'Rice', farmName: 'Farm A' })

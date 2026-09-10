@@ -4,7 +4,8 @@
       "ignoreDeprecations": "6.0",
       "paths": {
         "@/*": ["./*"],
-        "@/components/*": ["./components/*"],
+        "@/components/*": ["./src/components/*"],
+        "@/hooks/*": ["./src/hooks/*"],
         "@/lib/*": ["./lib/*"],
         "@/app/*": ["./app/*"]
       }

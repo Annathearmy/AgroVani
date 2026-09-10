@@ -138,6 +138,7 @@ export default function BuyerDashboard() {
     </main>
   )
 }
+/* Legacy buyer dashboard implementation retained temporarily for reference.
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, BadgeIndianRupee, RefreshCw, ShoppingBasket, Plus } from 'lucide-react'
@@ -196,3 +197,4 @@ export default function BuyerDashboard() {
     </main>
   )
 }
+*/

@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowRight, BadgeCheck, Building2, ShieldCheck, UserRound, Lock, Mail, MapPin, ChevronRight, CheckCircle2, ShoppingCart, Truck } from 'lucide-react'
-import { ArrowRight, BadgeCheck, Building2, ShieldCheck, UserRound, Lock, Mail, MapPin, ChevronRight, CheckCircle2, Truck } from 'lucide-react'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import InstallAppButton from '@/components/InstallAppButton'
 
